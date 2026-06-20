@@ -504,11 +504,11 @@ document.addEventListener("DOMContentLoaded", function() {
     const optionsContainer = document.querySelector('.input-group');
     if (optionsContainer) {
         const astarCheckboxDiv = document.createElement('div');
-        astarCheckboxDiv.className = 'form-check form-switch ml-3 d-flex align-items-center';
+        astarCheckboxDiv.className = 'routing-mode-caption form-check form-switch';
         astarCheckboxDiv.innerHTML = `
             <input class="form-check-input" type="checkbox" id="useAStarAlgorithm" checked>
-            <label class="form-check-label ml-2" for="useAStarAlgorithm">Environmental A* smart routing (recommended)</label>
-            <span class="badge badge-info ml-2" data-toggle="tooltip" title="Uses A* algorithm to optimize routes based on real-time environmental data">?</span>
+            <label class="routing-mode-caption-label form-check-label" for="useAStarAlgorithm">Environmental A* smart routing (recommended)</label>
+            <span class="routing-mode-caption-help badge badge-info" data-toggle="tooltip" title="Uses A* algorithm to optimize routes based on real-time environmental data">?</span>
         `;
         
         optionsContainer.appendChild(astarCheckboxDiv);

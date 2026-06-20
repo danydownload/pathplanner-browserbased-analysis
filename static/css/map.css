@@ -245,6 +245,44 @@ body {
     position: relative;
 }
 
+.routing-mode-caption {
+    flex: 0 0 100%;
+    display: grid;
+    grid-template-columns: minmax(34px, 1fr) auto minmax(34px, 1fr);
+    align-items: center;
+    width: 100%;
+    margin: 12px auto 2px;
+    padding: 0;
+    column-gap: 7px;
+    color: var(--color-sidebar-muted);
+    text-align: center;
+}
+
+.routing-mode-caption .form-check-input {
+    float: none;
+    justify-self: end;
+    margin: 0;
+}
+
+.routing-mode-caption .routing-mode-caption-label {
+    justify-self: center;
+    margin: 0;
+    color: var(--color-sidebar-text);
+    font-size: 0.72rem;
+    font-weight: 650;
+    line-height: 1.25;
+    text-align: center;
+}
+
+.routing-mode-caption-help {
+    justify-self: start;
+    margin: 0;
+    color: var(--color-primary);
+    background: var(--color-primary-soft);
+    font-size: 0.64rem;
+    line-height: 1;
+}
+
 .form-control,
 .form-select {
     color: var(--color-text);
