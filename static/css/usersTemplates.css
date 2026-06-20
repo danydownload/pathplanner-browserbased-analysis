@@ -1,45 +1,233 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Montserrat:wght@400;700&display=swap');
-
 body {
-    font-family: 'Montserrat', sans-serif;
-    background-image: radial-gradient(circle farthest-corner at 10% 20%, rgba(255,209,67,1) 0%, rgba(255,145,83,1) 90%);
+    min-height: 100vh;
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
-    margin: 0;
+    padding: 28px var(--space-page-x);
 }
 
 #formContainer {
-    background-color: #f5f5f5;
+    width: min(100%, 560px);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    padding: clamp(22px, 4vw, 34px);
+}
+
+.form-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+    color: var(--color-text);
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.form-brand img {
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-sm);
+}
+
+#myTitle {
+    margin: 0 0 26px;
+    color: var(--color-text);
+    font-size: clamp(1.6rem, 3vw, 2.15rem);
+    font-weight: 800;
+}
+
+form label {
+    color: var(--color-text);
+    font-weight: 700;
+}
+
+form input,
+form select,
+form textarea {
+    border-color: var(--color-border) !important;
+    border-radius: var(--radius-sm) !important;
+}
+
+form input:focus,
+form select:focus,
+form textarea:focus {
+    border-color: var(--color-clinical) !important;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.18) !important;
+}
+
+.form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 22px;
+}
+
+#actionButton,
+#creationbutton,
+.profile-page .btn-primary,
+.profile-page .btn-success {
+    color: var(--color-on-primary);
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    border-radius: var(--radius-sm);
+    font-weight: 750;
+}
+
+#actionButton:hover,
+#actionButton:focus,
+#creationbutton:hover,
+#creationbutton:focus,
+.profile-page .btn-primary:hover,
+.profile-page .btn-primary:focus,
+.profile-page .btn-success:hover,
+.profile-page .btn-success:focus {
+    color: var(--color-on-primary);
+    background-color: var(--color-primary-strong);
+    border-color: var(--color-primary-strong);
+}
+
+.btn-secondary {
+    color: var(--color-text);
+    background: var(--color-surface-soft);
+    border-color: var(--color-border);
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+}
+
+.btn-secondary:hover,
+.btn-secondary:focus {
+    color: var(--color-text);
+    background: var(--color-surface-muted);
+    border-color: var(--color-border);
+}
+
+.profile-page {
+    display: block;
+    padding: 28px var(--space-page-x);
+}
+
+.profile-page #formContainer {
+    width: min(100%, 1180px);
+}
+
+.profile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 26px;
+}
+
+.profile-grid {
+    display: grid;
+    grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.4fr);
+    gap: 24px;
+}
+
+.profile-panel {
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
     padding: 20px;
-    border-radius: 10px;
 }
 
-#myTitle{
-    margin-bottom:30px;
-    font-weight: bold;
+.profile-panel h2 {
+    margin: 0 0 18px;
+    color: var(--color-text);
+    font-size: 1.25rem;
+    font-weight: 800;
 }
 
-#actionButton{
-    font-size: 16px;
-    background-color: #F04928;
-    border-color: #F04928;
-    color: white;
-    margin-top: 20px;
-}
-#actionButton:hover{
-    background-color: #de2500;
-    border-color: #de2500;
+.profile-avatar {
+    width: 112px;
+    height: 112px;
+    object-fit: cover;
+    border: 4px solid var(--color-surface);
+    box-shadow: var(--shadow-sm);
 }
 
-#creationbutton{
-    font-size: 16px;
-    background-color: #F04928;
-    border-color: #F04928;
-    color: white;
+.profile-details {
+    margin: 22px 0;
 }
-#creationbutton:hover{
-    background-color: #de2500;
-    border-color: #de2500;
+
+.profile-details p {
+    margin: 0 0 10px;
+    color: var(--color-text-muted);
+}
+
+.profile-details strong {
+    color: var(--color-text);
+}
+
+.profile-actions,
+.table-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.profile-table {
+    overflow-x: auto;
+}
+
+.profile-table .table {
+    margin-bottom: 0;
+    color: var(--color-text);
+}
+
+.profile-table th {
+    color: var(--color-text);
+    background: var(--color-surface-muted);
+    border-color: var(--color-border);
+}
+
+.profile-table td {
+    border-color: var(--color-border);
+    vertical-align: middle;
+}
+
+.btn-danger {
+    border-radius: var(--radius-sm);
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    font-weight: 700;
+}
+
+.btn-danger:hover,
+.btn-danger:focus {
+    background: var(--color-danger-strong);
+    border-color: var(--color-danger-strong);
+}
+
+.pagination .page-link {
+    color: var(--color-navigation);
+    border-color: var(--color-border);
+}
+
+.pagination .active .page-link {
+    background: var(--color-navigation);
+    border-color: var(--color-navigation);
+}
+
+.n_text {
+    color: var(--color-text-muted);
+}
+
+@media (max-width: 900px) {
+    .profile-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 575.98px) {
+    body,
+    .profile-page {
+        padding: 16px;
+    }
+
+    #formContainer {
+        padding: 20px;
+    }
 }

@@ -10,10 +10,12 @@ Signup
 {%endblock%}
 
 {%block action%}
-<button id="actionButton" style="margin-right:50px;" type="submit" class="btn btn-primary">Signup</button>
+<div class="form-actions">
+<button id="actionButton" type="submit" class="btn btn-primary">Signup</button>
 {%endblock%}
 
 {%block href%}
-<a id="actionButton" style="margin-right:2px;" href="{% url 'users:login' %}" class="btn btn-primary">Login</a>
-<a style="margin-top:20px;" href="{% url 'home' %}" class="btn btn-secondary">Previous</a>
+<a href="{% url 'users:login' %}" class="btn btn-secondary">Login</a>
+<a href="{% url 'home' %}" class="btn btn-secondary">Previous</a>
+</div>
 {%endblock%}

@@ -1,43 +1,140 @@
 body {
-    height: 100%;
-    margin: 10px;
-    font-family: 'Montserrat', sans-serif;
-    background-image: radial-gradient(circle farthest-corner at 10% 20%, rgba(255,209,67,1) 0%, rgba(255,145,83,1) 90%);
+    min-height: 100vh;
+    padding: 28px var(--space-page-x);
 }
+
+#formContainer,
 .container {
-    max-width: 800px;
+    max-width: 880px;
     margin: 0 auto;
-    overflow-y: auto;
-    height: 100%;
-    background-color: #f5f5f5;
-    padding: 20px;
-    border-radius: 10px;
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    padding: clamp(22px, 4vw, 34px);
 }
+
+.form-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+    color: var(--color-text);
+    text-decoration: none;
+    font-weight: 800;
+}
+
+.form-brand img {
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-sm);
+}
+
+#myTitle {
+    margin: 0 0 24px;
+    color: var(--color-text);
+    font-size: clamp(1.6rem, 3vw, 2.15rem);
+    font-weight: 800;
+}
+
 .preferences-table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
 }
-.preferences-table th, .preferences-table td {
-    padding: 10px;
-    border: 1px solid #ddd;
-    text-align: center;
-    width: 50%;
+
+.preferences-table th,
+.preferences-table td {
+    padding: 13px 14px;
+    border-bottom: 1px solid var(--color-border);
+    text-align: left;
+    vertical-align: middle;
 }
+
 .preferences-table th {
-    background-color: #f2f2f2;
+    color: var(--color-text);
+    background-color: var(--color-surface-muted);
+    font-weight: 800;
 }
+
+.preferences-table tr:last-child td {
+    border-bottom: none;
+}
+
+.preferences-table label {
+    margin: 0;
+    color: var(--color-text);
+    font-weight: 700;
+}
+
+.preferences-table input,
+.preferences-table select,
+.preferences-table textarea {
+    max-width: 100%;
+}
+
 .slider-value {
     display: inline-block;
-    width: 150px;
+    min-width: 150px;
+    color: var(--color-text-muted);
+    font-weight: 650;
 }
-#actionButton{
-    font-size: 16px;
-    background-color: #F04928;
-    border-color: #F04928;
-    color: white;
-    margin-top: 20px;
+
+.form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 22px;
 }
-#actionButton:hover{
-    background-color: #de2500;
-    border-color: #de2500;
+
+#actionButton,
+#creationbutton {
+    color: var(--color-on-primary);
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    border-radius: var(--radius-sm);
+    font-weight: 750;
+}
+
+#actionButton:hover,
+#actionButton:focus,
+#creationbutton:hover,
+#creationbutton:focus {
+    color: var(--color-on-primary);
+    background-color: var(--color-primary-strong);
+    border-color: var(--color-primary-strong);
+}
+
+.btn-secondary {
+    color: var(--color-text);
+    background: var(--color-surface-soft);
+    border-color: var(--color-border);
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+}
+
+.btn-secondary:hover,
+.btn-secondary:focus {
+    color: var(--color-text);
+    background: var(--color-surface-muted);
+    border-color: var(--color-border);
+}
+
+@media (max-width: 575.98px) {
+    body {
+        padding: 16px;
+    }
+
+    .preferences-table th,
+    .preferences-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .preferences-table th {
+        display: none;
+    }
 }

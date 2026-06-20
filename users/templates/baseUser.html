@@ -4,12 +4,18 @@
 <html lang="en">
 <head>
     <title>{%block title%}{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
     <link rel="icon" type="image/png" href="{%static 'img/flavicon.png'%}">
+    <link href="{% static 'css/theme.css' %}" rel="stylesheet">
     <link href="{% static 'css/usersTemplates.css' %}" rel="stylesheet">
 </head>
 <body>
     <div id="formContainer" class="container">
+        <a href="{% url 'home' %}" class="form-brand">
+            <img src="{% static 'img/flavicon.png' %}" alt="Unimore Maps">
+            <span>Unimore Maps</span>
+        </a>
         <h2 id="myTitle">{%block h%}{%endblock%}</h2>
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
