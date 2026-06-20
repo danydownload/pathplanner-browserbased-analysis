@@ -1,26 +1,123 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Montserrat:wght@400;700&display=swap');
-
-body{
-    font-family: 'Montserrat', sans-serif;
-    background-image: radial-gradient( circle farthest-corner at 10% 20%,  rgba(255,209,67,1) 0%, rgba(255,145,83,1) 90% );
+body {
+    min-height: 100vh;
 }
 
-p{
-    font-weight: bold;
+.home-shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
-hr{
-    color: white;
-    border-width: 3px;
+.home-hero {
+    flex: 1;
+    display: grid;
+    align-items: center;
+    padding: clamp(36px, 7vh, 84px) var(--space-page-x) 32px;
 }
 
-#authenticationBtn{
-    font-size: 23px;
-    background-color: #F04928;
-    border-color: #F04928;
-    color: white;
+.home-content {
+    width: min(100%, 920px);
+    margin: 0 auto;
 }
-#authenticationBtn:hover{
-    background-color: #de2500;
-    border-color: #de2500;
+
+.home-logo {
+    width: min(360px, 82vw);
+    height: auto;
+    margin-bottom: 28px;
+}
+
+.home-title {
+    max-width: 760px;
+    margin: 0 auto 16px;
+    color: var(--color-text);
+    font-size: clamp(2rem, 4vw, 4.25rem);
+    font-weight: 800;
+    line-height: 1.02;
+}
+
+.home-copy {
+    max-width: 760px;
+    margin: 0 auto 30px;
+    color: var(--color-text-muted);
+    font-size: clamp(1rem, 1.5vw, 1.18rem);
+    line-height: 1.6;
+    font-weight: 500;
+}
+
+.home-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.home-actions .btn,
+.auth-action,
+#authenticationBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 46px;
+    padding: 0.72rem 1.1rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    font-size: 1rem;
+    font-weight: 750;
+}
+
+.auth-action,
+#authenticationBtn {
+    color: #ffffff;
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+}
+
+.auth-action:hover,
+.auth-action:focus,
+#authenticationBtn:hover,
+#authenticationBtn:focus {
+    color: #ffffff;
+    background: var(--color-primary-strong);
+    border-color: var(--color-primary-strong);
+}
+
+.home-actions .btn-outline-primary {
+    color: var(--color-navigation);
+    background: var(--color-surface);
+    border-color: var(--color-border);
+}
+
+.home-actions .btn-outline-primary:hover,
+.home-actions .btn-outline-primary:focus {
+    color: #ffffff;
+    background: var(--color-navigation);
+    border-color: var(--color-navigation);
+}
+
+.home-footer {
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface);
+}
+
+.home-footer p {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-weight: 650;
+}
+
+.footer-logo {
+    width: 42px;
+    height: 42px;
+}
+
+@media (max-width: 575.98px) {
+    .home-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .home-actions .btn {
+        width: 100%;
+    }
 }
