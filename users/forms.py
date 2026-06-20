@@ -28,6 +28,11 @@ class UserProfileForm(forms.ModelForm):
         self.fields['email'].required = False
         self.fields['default_pathology'].required = False
 
+        # Friendly placeholders
+        self.fields['first_name'].widget.attrs['placeholder'] = 'Your first name'
+        self.fields['last_name'].widget.attrs['placeholder'] = 'Your last name'
+        self.fields['email'].widget.attrs['placeholder'] = 'your.email@example.com'
+
     # Method for checking the name
     def clean_first_name(self): 
         first_name = self.cleaned_data['first_name']

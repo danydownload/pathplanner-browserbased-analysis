@@ -13,6 +13,26 @@ Edit profile
 <p class="form-lead">Keep your name, email and default clinical condition up to date.</p>
 {% endblock %}
 
+{% block form_content %}
+<section class="form-section">
+    <h3 class="form-section-title">Personal info</h3>
+    <div class="form-row">
+        <div class="form-col">
+            {{ form.first_name|as_crispy_field }}
+        </div>
+        <div class="form-col">
+            {{ form.last_name|as_crispy_field }}
+        </div>
+    </div>
+    {{ form.email|as_crispy_field }}
+</section>
+
+<section class="form-section">
+    <h3 class="form-section-title">Clinical preferences</h3>
+    {{ form.default_pathology|as_crispy_field }}
+</section>
+{% endblock %}
+
 {% block action %}
 <div class="form-actions">
 <button id="actionButton" type="submit" class="btn btn-primary">Save</button>

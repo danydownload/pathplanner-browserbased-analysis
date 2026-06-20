@@ -64,7 +64,36 @@ form textarea:focus {
     line-height: 1.45;
 }
 
-form select {
+.form-section {
+    margin-bottom: 28px;
+}
+
+.form-section-title {
+    margin: 0 0 16px;
+    color: var(--color-text);
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.form-col {
+    min-width: 0;
+}
+
+form label {
+    font-size: 0.92rem;
+    font-weight: 650;
+}
+
+form select,
+form .form-select {
     width: 100%;
 }
 

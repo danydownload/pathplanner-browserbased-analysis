@@ -20,7 +20,9 @@
         {% block lead %}{% endblock %}
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
-            {{ form|crispy }}
+            {% block form_content %}
+                {{ form|crispy }}
+            {% endblock %}
             {%block action%}
             {%endblock%}
             {%block href%}
