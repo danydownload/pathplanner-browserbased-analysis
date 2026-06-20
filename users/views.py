@@ -77,8 +77,22 @@ class EditProfileView(CustomRequired, UpdateView):
     def get_object(self):
         return self.request.user.userprofile
 
+    def get_initial(self):
+        initial = super().get_initial()
+        user = self.request.user
+        initial['first_name'] = user.first_name
+        initial['last_name'] = user.last_name
+        initial['email'] = user.email
+        return initial
+
     def form_valid(self, form):
-        # Add success message and save profile
+        # Sync the Django user account with the profile form
+        user = self.request.user
+        user.first_name = form.cleaned_data.get('first_name', '')
+        user.last_name = form.cleaned_data.get('last_name', '')
+        user.email = form.cleaned_data.get('email', '')
+        user.save()
+
         response = super().form_valid(form)
         messages.success(self.request, self.success_message)
         return response

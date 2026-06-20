@@ -6,15 +6,18 @@ import re
 class UserProfileForm(forms.ModelForm):
     class Meta:
         model = UserProfile
-        fields = ['first_name', 'last_name', 'email', 'profile_picture', 'default_pathology']
+        fields = ['first_name', 'last_name', 'email', 'default_pathology']
 
         labels = {
-            'first_name': 'First Name',
-            'last_name': 'Last Name',
+            'first_name': 'First name',
+            'last_name': 'Last name',
             'email': 'Email',
-            'profile_picture': 'Profile Picture',
             'preferences': 'Preferences',
-            'default_pathology': 'Default pathology',
+            'default_pathology': 'Default clinical condition',
+        }
+
+        help_texts = {
+            'default_pathology': 'This condition is pre-selected when you plan a route.',
         }
                 
     def __init__(self, *args, **kwargs):
@@ -23,7 +26,7 @@ class UserProfileForm(forms.ModelForm):
         self.fields['first_name'].required = False
         self.fields['last_name'].required = False
         self.fields['email'].required = False
-        self.fields['profile_picture'].required = False
+        self.fields['default_pathology'].required = False
 
     # Method for checking the name
     def clean_first_name(self): 

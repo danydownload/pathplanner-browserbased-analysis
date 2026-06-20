@@ -17,6 +17,7 @@
             <span>Unimore Maps</span>
         </a>
         <h2 id="myTitle">{%block h%}{%endblock%}</h2>
+        {% block lead %}{% endblock %}
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             {{ form|crispy }}

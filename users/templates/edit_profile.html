@@ -1,20 +1,24 @@
-{% extends "baseUser.html"%}
+{% extends "baseUser.html" %}
 {% load crispy_forms_tags %}
 
-{%block title%}
+{% block title %}
 Edit profile
-{%endblock%}
+{% endblock %}
 
-{%block h%}
+{% block h %}
 Edit profile
-{%endblock%}
+{% endblock %}
 
-{%block action%}
+{% block lead %}
+<p class="form-lead">Keep your name, email and default clinical condition up to date.</p>
+{% endblock %}
+
+{% block action %}
 <div class="form-actions">
 <button id="actionButton" type="submit" class="btn btn-primary">Save</button>
-{%endblock%}
+{% endblock %}
 
-{%block href%}
-<a href="{% url 'users:profile' %}" class="btn btn-secondary">Previous</a>
+{% block href %}
+<a href="{% url 'users:profile' %}" class="btn btn-secondary">Back to profile</a>
 </div>
-{%endblock%}
+{% endblock %}
