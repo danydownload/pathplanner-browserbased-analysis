@@ -113,6 +113,9 @@ _MAX_GRID_NODES = int(os.getenv('ASTAR_MAX_GRID_NODES', '6000'))
 _MAX_EXPANSIONS = int(os.getenv('ASTAR_MAX_EXPANSIONS', '4000'))
 _GOAL_RADIUS_M = 50.0
 
+PREFERENCE_POI_DECAY_M = 200.0
+PREFERENCE_POI_SCALE = 5.0
+
 
 def _node_id(node: Dict[str, float]) -> str:
     return f"{node['lat']:.6f},{node['lon']:.6f}"
@@ -199,6 +202,59 @@ def _adaptive_resolution(start: Dict[str, float], goal: Dict[str, float], base: 
         res += 25.0
 
 
+def get_poi_lists_for_grid(grid: List[Dict[str, float]]) -> Dict[str, List[Tuple[float, float]]]:
+    """Query real DB POI locations (Hospital + Stazione categories) inside the grid bbox."""
+    if not grid:
+        return {}
+
+    min_lat = min(node['lat'] for node in grid)
+    max_lat = max(node['lat'] for node in grid)
+    min_lon = min(node['lon'] for node in grid)
+    max_lon = max(node['lon'] for node in grid)
+
+    # Lazy import so the module can be imported without a configured Django app.
+    from .models import Hospital, Stazione
+
+    poi_lists: Dict[str, List[Tuple[float, float]]] = {}
+
+    hospitals = list(
+        Hospital.objects.filter(
+            lat__gte=min_lat, lat__lte=max_lat, lng__gte=min_lon, lng__lte=max_lon
+        ).values('lat', 'lng')
+    )
+    poi_lists['hospital'] = [(h['lat'], h['lng']) for h in hospitals]
+
+    for category in ['nature', 'entertainment', 'tourism', 'nightlife']:
+        stations = list(
+            Stazione.objects.filter(
+                latitudine__gte=min_lat,
+                latitudine__lte=max_lat,
+                longitudine__gte=min_lon,
+                longitudine__lte=max_lon,
+                **{category + '__gt': 0},
+            ).values('latitudine', 'longitudine')
+        )
+        poi_lists[category] = [(s['latitudine'], s['longitudine']) for s in stations]
+
+    return poi_lists
+
+
+def nearest_poi_distance(node: Dict[str, float], poi_list: List[Tuple[float, float]]) -> Optional[float]:
+    """Return the minimum haversine distance in meters from node to any POI."""
+    if not poi_list:
+        return None
+    return min(
+        haversine_m(node, {'lat': lat, 'lon': lon}) for lat, lon in poi_list
+    )
+
+
+def apply_preference_poi_adjustment(cost: float, weight: float, distance_m: Optional[float]) -> float:
+    """Reward positive weights for closeness to POIs; penalize for negative weights."""
+    if weight and distance_m is not None and distance_m >= 0:
+        cost += -weight * PREFERENCE_POI_SCALE * math.exp(-distance_m / PREFERENCE_POI_DECAY_M)
+    return cost
+
+
 def get_neighbors(
     node: Dict[str, float],
     grid: List[Dict[str, float]],
@@ -223,6 +279,7 @@ def calculate_edge_cost(
     current_g: float,
     patient: Dict[str, Any],
     preferences: Optional[Dict[str, float]] = None,
+    poi_lists: Optional[Dict[str, List[Tuple[float, float]]]] = None,
 ) -> float:
     """Port of environmentalAStar.js calculateCost (g-score increment)."""
     cost = current_g + haversine_m(current, neighbor)
@@ -289,6 +346,34 @@ def calculate_edge_cost(
     if combined_tourism and 'greenVisibility' in env:
         cost -= env['greenVisibility'] * combined_tourism * 0.8
 
+    # Real POI-based preference adjustments (fallback to proxies above when POI data is missing)
+    if poi_lists:
+        cost = apply_preference_poi_adjustment(
+            cost,
+            patient.get('patientNature', 0) + prefs.get('nature', 0),
+            nearest_poi_distance(neighbor, poi_lists.get('nature', [])),
+        )
+        cost = apply_preference_poi_adjustment(
+            cost,
+            patient.get('patientHospital', 0) + prefs.get('hospital', 0),
+            nearest_poi_distance(neighbor, poi_lists.get('hospital', [])),
+        )
+        cost = apply_preference_poi_adjustment(
+            cost,
+            patient.get('patientEntertainment', 0) + prefs.get('entertainment', 0),
+            nearest_poi_distance(neighbor, poi_lists.get('entertainment', [])),
+        )
+        cost = apply_preference_poi_adjustment(
+            cost,
+            patient.get('patientNightlife', 0) + prefs.get('nightlife', 0),
+            nearest_poi_distance(neighbor, poi_lists.get('nightlife', [])),
+        )
+        cost = apply_preference_poi_adjustment(
+            cost,
+            patient.get('patientTourism', 0) + prefs.get('tourism', 0),
+            nearest_poi_distance(neighbor, poi_lists.get('tourism', [])),
+        )
+
     return cost
 
 
@@ -330,6 +415,7 @@ def find_optimal_route(
 
     resolution = grid_resolution_m or _adaptive_resolution(start, goal)
     grid = create_search_grid(start, goal, resolution)
+    poi_lists = get_poi_lists_for_grid(grid)
 
     open_heap: List[Tuple[float, int, Dict[str, float]]] = []
     counter = 0
@@ -375,7 +461,7 @@ def find_optimal_route(
             if nid in closed:
                 continue
 
-            tentative = calculate_edge_cost(current, neighbor, g_score[cid], patient, preferences)
+            tentative = calculate_edge_cost(current, neighbor, g_score[cid], patient, preferences, poi_lists)
 
             if nid not in g_score or tentative < g_score[nid]:
                 came_from[nid] = current

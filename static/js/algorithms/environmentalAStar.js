@@ -12,6 +12,81 @@ import * as Weather from '../services/weather.js';
 import * as Elevation from '../services/elevation.js';
 import { lookupEnv } from '../data/envTileIndex.js';
 
+const POI_CATEGORY_TAGS = {
+    hospital: ['node["amenity"="hospital"]', 'node["healthcare"="hospital"]'],
+    entertainment: ['node["amenity"="cinema"]', 'node["amenity"="theatre"]', 'node["amenity"="concert_hall"]'],
+    nightlife: ['node["amenity"="bar"]', 'node["amenity"="pub"]', 'node["amenity"="nightclub"]'],
+    tourism: ['node["tourism"="attraction"]', 'node["tourism"="museum"]', 'node["tourism"="viewpoint"]'],
+    nature: ['node["leisure"="park"]', 'node["natural"="wood"]', 'node["leisure"="garden"]']
+};
+
+function getRouteBbox(start, goal) {
+    return {
+        minLat: Math.min(start.lat, goal.lat) - 0.01,
+        maxLat: Math.max(start.lat, goal.lat) + 0.01,
+        minLon: Math.min(start.lon, goal.lon) - 0.01,
+        maxLon: Math.max(start.lon, goal.lon) + 0.01
+    };
+}
+
+async function fetchPoiLocations(bbox, category) {
+    if (!window._astarPoiCache) {
+        window._astarPoiCache = {};
+    }
+    const cacheKey = `${category}:${bbox.minLat.toFixed(5)},${bbox.minLon.toFixed(5)},${bbox.maxLat.toFixed(5)},${bbox.maxLon.toFixed(5)}`;
+    if (window._astarPoiCache[cacheKey]) {
+        return window._astarPoiCache[cacheKey];
+    }
+
+    const tags = POI_CATEGORY_TAGS[category];
+    if (!tags) return [];
+
+    const bboxStr = `${bbox.minLat},${bbox.minLon},${bbox.maxLat},${bbox.maxLon}`;
+    const union = tags.map(tag => `${tag}(${bboxStr});`).join('');
+    const query = `[out:json][timeout:10];(${union});out center;`;
+
+    try {
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `data=${encodeURIComponent(query)}`
+        });
+        if (!response.ok) {
+            throw new Error(`Overpass error: ${response.status}`);
+        }
+        const data = await response.json();
+        const pois = (data.elements || []).map(el => {
+            const lat = el.lat ?? el.center?.lat;
+            const lon = el.lon ?? el.center?.lon;
+            if (lat == null || lon == null) return null;
+            return { lat, lon };
+        }).filter(Boolean);
+
+        window._astarPoiCache[cacheKey] = pois;
+        return pois;
+    } catch (error) {
+        console.warn(`Failed to fetch POIs for ${category}:`, error);
+        return [];
+    }
+}
+
+function nearestPoiDistance(point, poiList) {
+    if (!poiList || poiList.length === 0) return Infinity;
+    let minDist = Infinity;
+    for (const poi of poiList) {
+        const d = calculateDistance(point, poi);
+        if (d < minDist) minDist = d;
+    }
+    return minDist;
+}
+
+function applyPreferencePoiAdjustment(cost, weight, nearestDistanceMeters) {
+    if (weight && typeof weight === 'number' && Number.isFinite(nearestDistanceMeters)) {
+        cost += -weight * 5.0 * Math.exp(-nearestDistanceMeters / 200.0);
+    }
+    return cost;
+}
+
 /**
  * Main Environmental A* pathfinding function
  * @param {Object} start - Starting point {lat, lon}
@@ -22,7 +97,7 @@ import { lookupEnv } from '../data/envTileIndex.js';
  * @param {Number} gridResolution - Resolution of the search grid (in meters)
  * @returns {Object} Best route found
  */
-export async function findOptimalRoute(start, goal, map, patientCondition, environmentalData = null, gridResolution = 100, preferences = null) {
+export async function findOptimalRoute(start, goal, map, patientCondition, environmentalData = null, gridResolution = 100, preferences = null, poiLists = null) {
     console.log("Starting Environmental A* pathfinding algorithm");
     console.log(`Start: (${start.lat}, ${start.lon}), Goal: (${goal.lat}, ${goal.lon})`);
     console.log(`Patient condition: ${patientCondition.name}`);
@@ -80,7 +155,7 @@ export async function findOptimalRoute(start, goal, map, patientCondition, envir
             if (closedSet.has(neighborId)) continue;
             
             // Calculate tentative g-score (distance + environmental factors)
-            const tentativeGScore = await calculateCost(current, neighbor, gScore[currentId], patientCondition, environmentalData, preferences);
+            const tentativeGScore = await calculateCost(current, neighbor, gScore[currentId], patientCondition, environmentalData, preferences, poiLists);
             
             // Check if this path is better than any previous one
             const neighborInOpenSet = openSet.contains(neighborId);
@@ -180,7 +255,7 @@ function getNeighbors(node, grid, resolution) {
  * @param {Array} environmentalData - Pre-loaded environmental data
  * @returns {Number} Cost value (g-score)
  */
-async function calculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, preferences = null) {
+async function calculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, preferences = null, poiLists = null) {
     // Base cost is the physical distance
     const distance = calculateDistance(current, neighbor);
     let cost = currentGScore + distance;
@@ -311,6 +386,19 @@ async function calculateCost(current, neighbor, currentGScore, patientCondition,
         }
         if (combinedTourism !== 0 && envData.greenVisibility != null) {
             cost -= envData.greenVisibility * combinedTourism * 0.8;
+        }
+    }
+
+    // Apply POI-based preference adjustments when real POI data is available
+    if (poiLists) {
+        const poiCategories = ['nature', 'entertainment', 'nightlife', 'tourism', 'hospital'];
+        for (const category of poiCategories) {
+            const patientKey = 'patient' + category.charAt(0).toUpperCase() + category.slice(1);
+            const weight = (patientCondition?.[patientKey] || 0) + (preferences?.[category] || 0);
+            if (weight !== 0) {
+                const nearestDist = nearestPoiDistance(neighbor, poiLists[category]);
+                cost = applyPreferencePoiAdjustment(cost, weight, nearestDist);
+            }
         }
     }
     
@@ -578,6 +666,18 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
     const directPath = [start, goal];
     const environmentalData = await collectEnvironmentalData(directPath, patientCondition);
 
+    const bbox = getRouteBbox(start, goal);
+    const categories = ['nature', 'entertainment', 'nightlife', 'tourism', 'hospital'];
+    const activeCategories = categories.filter(category => {
+        const patientKey = 'patient' + category.charAt(0).toUpperCase() + category.slice(1);
+        return ((patientCondition?.[patientKey] || 0) + (preferences?.[category] || 0)) !== 0;
+    });
+
+    const poiLists = {};
+    await Promise.all(activeCategories.map(async category => {
+        poiLists[category] = await fetchPoiLocations(bbox, category);
+    }));
+
     const firstRoute = await findOptimalRoute(
         start,
         goal,
@@ -586,6 +686,7 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
         environmentalData,
         gridResolution,
         preferences,
+        poiLists,
     );
     
     // Add environmental data to route
@@ -624,8 +725,8 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
         
         // Create a modified cost calculation function with penalties
         const originalCalculateCost = calculateCost;
-        const calculateCostWithPenalties = async (current, neighbor, currentGScore, patientCondition, environmentalData, prefs) => {
-            let cost = await originalCalculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, prefs);
+        const calculateCostWithPenalties = async (current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists) => {
+            let cost = await originalCalculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists);
             
             // Add penalties for previously visited nodes
             const neighborId = nodeToId(neighbor);
@@ -647,6 +748,7 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
             environmentalData,
             gridResolution,
             preferences,
+            poiLists,
         );
         
         // Collect specific environmental data for this alternative route
