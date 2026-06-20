@@ -1,9 +1,12 @@
 from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from users.models import UserPreferences
 from .models import Stazione, Misurazione
 from .utils import calculate_route  # Assuming you have a utility function for route calculation
 from .air_quality_service import air_quality_service
 from .environmental_data_service import environmental_data_service
+from .real_environment_service import build_environment_payload
 from .multifactor_scoring import calculate_multifactor_score
 from .route_waypoints import generate_condition_waypoints
 from .environmental_astar import find_optimal_route, simplify_path_for_routing, score_path_multifactor
@@ -538,6 +541,105 @@ def get_environmental_data(request):
         return JsonResponse(data)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'POST'])
+def get_real_environment_data(request):
+    """
+    Real air-quality and pollen values for the selected pathology profile.
+
+    GET:
+      /api/environment/?lat=41.9028&lon=12.4964&pathologies=respiratory,allergy
+      /api/environment/?waypoints=41.9,12.5;41.91,12.49&condition=cardiac
+
+    POST JSON:
+      {"waypoints": [{"lat": 41.9028, "lon": 12.4964}], "pathologies": ["respiratory"]}
+    """
+    try:
+        waypoints, pathologies = _parse_environment_request(request)
+        return JsonResponse(build_environment_payload(waypoints, pathologies))
+    except ValueError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
+    except Exception:
+        return JsonResponse({'error': 'environment data lookup failed'}, status=500)
+
+
+def _parse_environment_request(request):
+    if request.method == 'GET':
+        params = request.GET
+        pathologies = (
+            params.get('pathologies')
+            or params.get('conditions')
+            or params.get('condition')
+            or params.get('pathology')
+            or 'default'
+        )
+        if params.get('waypoints'):
+            return _parse_waypoints_string(params['waypoints']), pathologies
+        return [(_parse_lat_lon(params.get('lat'), params.get('lon')))], pathologies
+
+    try:
+        body = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError as exc:
+        raise ValueError('invalid JSON body') from exc
+
+    pathologies = (
+        body.get('pathologies')
+        or body.get('conditions')
+        or body.get('condition')
+        or body.get('pathology')
+        or 'default'
+    )
+    if body.get('waypoints') is not None:
+        return _parse_waypoints_body(body['waypoints']), pathologies
+    return [(_parse_lat_lon(body.get('lat'), body.get('lon')))], pathologies
+
+
+def _parse_waypoints_string(value):
+    points = []
+    for raw_point in value.split(';'):
+        raw_point = raw_point.strip()
+        if not raw_point:
+            continue
+        parts = [part.strip() for part in raw_point.split(',')]
+        if len(parts) != 2:
+            raise ValueError('waypoints must use lat,lon;lat,lon format')
+        points.append(_parse_lat_lon(parts[0], parts[1]))
+    if not points:
+        raise ValueError('at least one waypoint is required')
+    return points
+
+
+def _parse_waypoints_body(value):
+    if not isinstance(value, list):
+        raise ValueError('waypoints must be a list')
+    points = []
+    for item in value:
+        if isinstance(item, dict):
+            points.append(_parse_lat_lon(item.get('lat'), item.get('lon')))
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            points.append(_parse_lat_lon(item[0], item[1]))
+        else:
+            raise ValueError('each waypoint must contain lat and lon')
+    if not points:
+        raise ValueError('at least one waypoint is required')
+    return points
+
+
+def _parse_lat_lon(raw_lat, raw_lon):
+    if raw_lat is None or raw_lon is None:
+        raise ValueError('lat and lon parameters are required')
+    try:
+        lat = float(raw_lat)
+        lon = float(raw_lon)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('lat and lon must be numbers') from exc
+    if not -90 <= lat <= 90:
+        raise ValueError('lat must be between -90 and 90')
+    if not -180 <= lon <= 180:
+        raise ValueError('lon must be between -180 and 180')
+    return lat, lon
 
 
 # View to handle air quality data requests
