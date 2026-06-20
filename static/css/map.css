@@ -703,10 +703,9 @@ input[type="range"]::-moz-range-thumb {
     background: var(--mac-accent);
 }
 
-/* Keep layer dropdown above the user block below it */
 .layer-block {
     position: relative;
-    z-index: 30;
+    z-index: 25;
 }
 
 .layer-block .dropdown-menu {
@@ -716,7 +715,7 @@ input[type="range"]::-moz-range-thumb {
 
 .user-block {
     position: relative;
-    z-index: 20;
+    z-index: 40;
 }
 
 #pm25,
