@@ -66,11 +66,10 @@ form textarea:focus {
 
 #actionButton,
 #creationbutton,
-.profile-page .btn-primary,
-.profile-page .btn-success {
+.profile-page .btn-primary {
     color: var(--color-on-primary);
-    background-color: var(--color-primary);
-    border-color: var(--color-primary);
+    background-color: var(--color-navigation);
+    border-color: var(--color-navigation);
     border-radius: var(--radius-sm);
     font-weight: 750;
 }
@@ -80,7 +79,20 @@ form textarea:focus {
 #creationbutton:hover,
 #creationbutton:focus,
 .profile-page .btn-primary:hover,
-.profile-page .btn-primary:focus,
+.profile-page .btn-primary:focus {
+    color: var(--color-on-primary);
+    background-color: var(--color-navigation-strong);
+    border-color: var(--color-navigation-strong);
+}
+
+.profile-page .btn-success {
+    color: var(--color-on-primary);
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    border-radius: var(--radius-sm);
+    font-weight: 750;
+}
+
 .profile-page .btn-success:hover,
 .profile-page .btn-success:focus {
     color: var(--color-on-primary);

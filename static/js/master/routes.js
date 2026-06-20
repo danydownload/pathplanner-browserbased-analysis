@@ -60,7 +60,7 @@ function getThemeColor(variableName, fallback) {
 
 function getRouteBaseColor(route) {
     return route && route.isDirectRoute
-        ? getThemeColor('--route-direct', '#2563eb')
+        ? getThemeColor('--route-direct', '#1e40af')
         : getThemeColor('--route-optimized', '#16a34a');
 }
 
@@ -416,20 +416,16 @@ function renderDirectionsSidebar(route) {
 }
 
 function setDirectionsSidebarOpen(open) {
-    document.body.classList.toggle('right-sidebar-open', open);
-    const sidebar = document.getElementById('rightSidebar');
+    document.body.classList.toggle('directions-open', open);
     const panel = document.getElementById('directionsPanel');
-    const toggle = document.getElementById('rightSidebarToggle');
-    if (sidebar) {
-        sidebar.setAttribute('aria-hidden', String(!open));
-    }
+    const toggle = document.getElementById('directionsToggle');
     if (panel) {
         panel.setAttribute('aria-hidden', String(!open));
     }
     if (toggle) {
         toggle.setAttribute('aria-expanded', String(open));
-        toggle.setAttribute('aria-label', open ? 'Close environmental data and directions' : 'Open environmental data and directions');
-        toggle.setAttribute('title', open ? 'Close environmental data and directions' : 'Environmental data & directions');
+        toggle.setAttribute('aria-label', open ? 'Close turn-by-turn directions' : 'Open turn-by-turn directions');
+        toggle.setAttribute('title', open ? 'Close directions' : 'Turn-by-turn directions');
     }
 }
 

@@ -73,8 +73,8 @@ body {
 .auth-action,
 #authenticationBtn {
     color: var(--color-on-primary);
-    background: var(--color-primary);
-    border-color: var(--color-primary);
+    background: var(--color-navigation);
+    border-color: var(--color-navigation);
 }
 
 .auth-action:hover,
@@ -82,8 +82,8 @@ body {
 #authenticationBtn:hover,
 #authenticationBtn:focus {
     color: var(--color-on-primary);
-    background: var(--color-primary-strong);
-    border-color: var(--color-primary-strong);
+    background: var(--color-navigation-strong);
+    border-color: var(--color-navigation-strong);
 }
 
 .home-actions .btn-outline-primary {

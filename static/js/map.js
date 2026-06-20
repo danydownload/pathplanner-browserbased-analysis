@@ -79,11 +79,10 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // Unified right sidebar (environmental data + turn-by-turn directions)
+    // Right sidebar: environmental data
     var rightSidebar = document.getElementById('rightSidebar');
     var rightSidebarToggle = document.getElementById('rightSidebarToggle');
     var envInspectorClose = document.getElementById('envInspectorClose');
-    var directionsClose = document.getElementById('directionsClose');
 
     function setRightSidebarOpen(open) {
         if (!rightSidebar) return;
@@ -91,8 +90,8 @@ document.addEventListener("DOMContentLoaded", function() {
         rightSidebar.setAttribute('aria-hidden', String(!open));
         if (rightSidebarToggle) {
             rightSidebarToggle.setAttribute('aria-expanded', String(open));
-            rightSidebarToggle.setAttribute('aria-label', open ? 'Close environmental data and directions' : 'Open environmental data and directions');
-            rightSidebarToggle.setAttribute('title', open ? 'Close environmental data and directions' : 'Environmental data & directions');
+            rightSidebarToggle.setAttribute('aria-label', open ? 'Close environmental data' : 'Open environmental data');
+            rightSidebarToggle.setAttribute('title', open ? 'Close environmental data' : 'Environmental data');
         }
         if (!open && rightSidebarToggle) {
             rightSidebarToggle.focus({ preventScroll: true });
@@ -112,12 +111,6 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    if (directionsClose) {
-        directionsClose.addEventListener('click', function() {
-            setRightSidebarOpen(false);
-        });
-    }
-
     if (rightSidebar && mapPanel) {
         [rightSidebar, mapPanel].forEach(function(element) {
             element.addEventListener('transitionend', function(event) {
@@ -131,6 +124,44 @@ document.addEventListener("DOMContentLoaded", function() {
     document.addEventListener('keydown', function(event) {
         if (event.key === 'Escape' && document.body.classList.contains('right-sidebar-open')) {
             setRightSidebarOpen(false);
+        }
+    });
+
+    // Floating turn-by-turn directions panel
+    var directionsPanel = document.getElementById('directionsPanel');
+    var directionsToggle = document.getElementById('directionsToggle');
+    var directionsClose = document.getElementById('directionsClose');
+
+    function setDirectionsOpen(open) {
+        if (!directionsPanel) return;
+        document.body.classList.toggle('directions-open', open);
+        directionsPanel.setAttribute('aria-hidden', String(!open));
+        if (directionsToggle) {
+            directionsToggle.setAttribute('aria-expanded', String(open));
+            directionsToggle.setAttribute('aria-label', open ? 'Close turn-by-turn directions' : 'Open turn-by-turn directions');
+            directionsToggle.setAttribute('title', open ? 'Close directions' : 'Turn-by-turn directions');
+        }
+        if (!open && directionsToggle) {
+            directionsToggle.focus({ preventScroll: true });
+        }
+        scheduleMapInvalidation();
+    }
+
+    if (directionsToggle) {
+        directionsToggle.addEventListener('click', function() {
+            setDirectionsOpen(!document.body.classList.contains('directions-open'));
+        });
+    }
+
+    if (directionsClose) {
+        directionsClose.addEventListener('click', function() {
+            setDirectionsOpen(false);
+        });
+    }
+
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape' && document.body.classList.contains('directions-open')) {
+            setDirectionsOpen(false);
         }
     });
 });

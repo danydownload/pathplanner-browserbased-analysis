@@ -6,8 +6,8 @@ body {
        --mac-accent: #0a84ff;
        --mac-accent-strong: #006bd6;
     */
-    --mac-accent: #2563eb;
-    --mac-accent-strong: #1e40af;
+    --mac-accent: #1e40af;
+    --mac-accent-strong: #1e3a8a;
     --mac-accent-soft: color-mix(in srgb, var(--mac-accent) 15%, transparent);
     --mac-window-bg: color-mix(in srgb, var(--color-surface) 88%, transparent);
     --mac-window-bg-strong: color-mix(in srgb, var(--color-surface-soft) 82%, transparent);
@@ -1028,12 +1028,12 @@ body.right-sidebar-open .right-sidebar-toggle {
     bottom: 0;
     z-index: 1200;
     display: flex;
-    width: min(400px, 100vw);
+    width: min(380px, 100vw);
     flex-direction: column;
+    color: #ffffff;
     background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.86)),
-        var(--color-surface);
-    border-left: 1px solid rgba(216, 227, 238, 0.9);
+        linear-gradient(180deg, #1e40af 0%, #1e3a8a 100%);
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
     box-shadow: -18px 0 42px rgba(15, 31, 51, 0.14), 0 2px 12px rgba(15, 31, 51, 0.08);
     overflow: hidden;
     transform: translateX(100%);
@@ -1043,8 +1043,7 @@ body.right-sidebar-open .right-sidebar-toggle {
 @supports ((backdrop-filter: blur(20px)) or (-webkit-backdrop-filter: blur(20px))) {
     .right-sidebar {
         background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(248, 250, 252, 0.62)),
-            var(--color-surface);
+            linear-gradient(180deg, rgba(30, 64, 175, 0.94), rgba(30, 58, 138, 0.92));
     }
 }
 
@@ -1053,30 +1052,20 @@ body.right-sidebar-open .right-sidebar {
 }
 
 body.right-sidebar-open .map-panel {
-    margin-right: min(400px, 100vw);
+    margin-right: min(380px, 100vw);
 }
 
 .env-panel {
     position: relative;
     display: flex;
-    flex: 1 1 50%;
+    flex: 1 1 auto;
     flex-direction: column;
     gap: 14px;
     padding: 18px;
-    color: var(--color-text);
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.86)),
-        var(--color-surface);
-    border-bottom: 1px solid rgba(216, 227, 238, 0.9);
+    color: #ffffff;
+    background: transparent;
     overflow: hidden;
 }
-
-@supports ((backdrop-filter: blur(20px)) or (-webkit-backdrop-filter: blur(20px))) {
-    .env-panel {
-        background:
-            linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(248, 250, 252, 0.62)),
-            var(--color-surface);
-    }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1540,20 +1529,154 @@ body.right-sidebar-open .map-panel {
 }
 
 /* ---------------------------------------------------------------
-   Turn-by-turn directions sidebar (right-hand, blue background)
+   Dark blue theme overrides for the environmental sidebar
+   (matches the directions panel colour)
    --------------------------------------------------------------- */
 
+.right-sidebar .env-inspector-kicker {
+    color: #93c5fd;
+}
+
+.right-sidebar .env-inspector-title,
+.right-sidebar .env-aqi-label,
+.right-sidebar .env-aqi-source,
+.right-sidebar .env-aqi-value,
+.right-sidebar .env-metric-name,
+.right-sidebar .env-metric-value,
+.right-sidebar .env-metric-unit,
+.right-sidebar .env-metric-source,
+.right-sidebar .env-metric-timestamp,
+.right-sidebar .env-metric-station,
+.right-sidebar .env-metric-reason,
+.right-sidebar .env-inspector-status,
+.right-sidebar .env-metric-group-title,
+.right-sidebar .env-metric-group-count,
+.right-sidebar .env-empty-state {
+    color: #ffffff;
+}
+
+.right-sidebar .env-icon-button {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+
+.right-sidebar .env-icon-button:hover,
+.right-sidebar .env-icon-button:focus {
+    background: rgba(255, 255, 255, 0.24);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.right-sidebar .env-aqi-card,
+.right-sidebar .env-metric-card,
+.right-sidebar .env-empty-state {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.right-sidebar .env-aqi-card--loading,
+.right-sidebar .env-metric-card--loading {
+    background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+}
+
+.right-sidebar .env-context-pill {
+    color: #bfdbfe;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.right-sidebar .env-real-badge--ok {
+    color: #ffffff;
+    background: rgba(34, 197, 94, 0.85);
+}
+
+.right-sidebar .env-real-badge--nd {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.right-sidebar .env-aqi-ring {
+    background:
+        radial-gradient(circle at center, rgba(255, 255, 255, 0.05) 0 57%, transparent 59%),
+        conic-gradient(var(--env-aqi-color) var(--env-aqi-progress, 18%), rgba(255, 255, 255, 0.15) 0);
+}
+
+.right-sidebar .env-level-track {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.right-sidebar .env-metric-groups::-webkit-scrollbar-thumb,
+.right-sidebar .env-metric-groups::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* ---------------------------------------------------------------
+   Turn-by-turn directions panel (floating, detached)
+   --------------------------------------------------------------- */
+
+.directions-toggle {
+    position: fixed;
+    top: auto;
+    bottom: 16px;
+    right: 16px;
+    z-index: 1243;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    color: var(--color-on-primary);
+    background:
+        linear-gradient(135deg, #1e40af, #1e3a8a);
+    border: 1px solid rgba(255, 255, 255, 0.38);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease,
+        box-shadow 0.18s ease;
+}
+
+.directions-toggle:hover,
+.directions-toggle:focus {
+    transform: translateY(-1px);
+    box-shadow: 0 22px 50px rgba(15, 31, 51, 0.24);
+}
+
+.directions-toggle:focus-visible {
+    outline: 3px solid rgba(30, 64, 175, 0.35);
+    outline-offset: 3px;
+}
+
+body.directions-open .directions-toggle {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(8px);
+}
+
 .directions-panel {
-    position: relative;
+    position: fixed;
+    top: calc(50% + 8px);
+    right: 16px;
+    bottom: 16px;
+    z-index: 1300;
     display: flex;
-    flex: 1 1 50%;
+    width: min(380px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
     flex-direction: column;
     gap: 12px;
     padding: 16px;
     color: #ffffff;
     background:
         linear-gradient(180deg, #1e40af 0%, #1e3a8a 100%);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 30px 80px rgba(15, 31, 51, 0.28);
     overflow: hidden;
+    transform: translateX(calc(100% + 24px));
+    transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @supports ((backdrop-filter: blur(20px)) or (-webkit-backdrop-filter: blur(20px))) {
@@ -1561,6 +1684,10 @@ body.right-sidebar-open .map-panel {
         background:
             linear-gradient(180deg, rgba(30, 64, 175, 0.94), rgba(30, 58, 138, 0.92));
     }
+}
+
+body.directions-open .directions-panel {
+    transform: translateX(0);
 }
 
 .directions-header {
@@ -1790,7 +1917,7 @@ body.right-sidebar-open .map-panel {
     width: 18px;
     height: 18px;
     margin: 2px 0 0;
-    accent-color: #60a5fa;
+    accent-color: #93c5fd;
     cursor: pointer;
 }
 
@@ -1919,6 +2046,22 @@ body.right-sidebar-open .map-panel {
 
     .right-sidebar-toggle {
         right: 14px;
+    }
+
+    .directions-toggle {
+        top: auto;
+        right: 14px;
+        bottom: 14px;
+    }
+
+    .directions-panel {
+        top: 10px;
+        right: 10px;
+        bottom: 10px;
+        width: calc(100vw - 20px);
+        max-width: calc(100vw - 20px);
+        padding: 14px;
+        border-radius: var(--radius-md);
     }
 
     .env-aqi-card {

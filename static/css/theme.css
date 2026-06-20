@@ -43,6 +43,12 @@
     --route-primary: #1e40af;
     --route-primary-strong: #1e3a8a;
 
+    /* Bootstrap primary override to keep every blue in the same dark-blue family */
+    --bs-primary: #1e40af;
+    --bs-primary-rgb: 30, 64, 175;
+    --bs-primary-bg: #1e40af;
+    --bs-primary-border-color: #1e40af;
+
     --shadow-sm: 0 10px 28px rgba(15, 31, 51, 0.12);
     --shadow-md: 0 18px 44px rgba(15, 31, 51, 0.18);
     --radius-sm: 8px;
