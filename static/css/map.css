@@ -156,7 +156,7 @@ body {
 
 .location-btn:hover,
 .location-btn:focus {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background: var(--color-primary);
     border-color: var(--color-primary);
 }
@@ -175,7 +175,7 @@ body {
     min-width: 46px;
     padding: 4px 8px;
     border-radius: 999px;
-    color: #dffbf7;
+    color: var(--color-primary-soft-text);
     background: rgba(20, 184, 166, 0.18);
     font-size: 0.82rem;
     font-weight: 700;
@@ -196,7 +196,7 @@ input[type="range"]::-webkit-slider-thumb {
     appearance: none;
     width: 20px;
     height: 20px;
-    background: #ffffff;
+    background: var(--color-control-thumb);
     border: 5px solid var(--color-navigation);
     border-radius: 50%;
     cursor: pointer;
@@ -206,7 +206,7 @@ input[type="range"]::-webkit-slider-thumb {
 input[type="range"]::-moz-range-thumb {
     width: 20px;
     height: 20px;
-    background: #ffffff;
+    background: var(--color-control-thumb);
     border: 5px solid var(--color-navigation);
     border-radius: 50%;
     cursor: pointer;
@@ -252,7 +252,7 @@ input[type="range"]::-moz-range-thumb {
 
 .btn-route-primary,
 #searchButton {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background: var(--color-primary);
     border-color: var(--color-primary);
 }
@@ -261,7 +261,7 @@ input[type="range"]::-moz-range-thumb {
 .btn-route-primary:focus,
 #searchButton:hover,
 #searchButton:focus {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background: var(--color-primary-strong);
     border-color: var(--color-primary-strong);
 }
@@ -277,7 +277,7 @@ input[type="range"]::-moz-range-thumb {
 .btn-route-muted:focus,
 #cancelButton:hover,
 #cancelButton:focus {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background: rgba(220, 38, 38, 0.22);
     border-color: rgba(220, 38, 38, 0.45);
 }
@@ -296,7 +296,7 @@ input[type="range"]::-moz-range-thumb {
 .layer-toggle:focus,
 .user-toggle:hover,
 .user-toggle:focus {
-    color: #ffffff;
+    color: var(--color-on-primary);
 }
 
 .layer-icon,
@@ -357,7 +357,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .active-layer {
-    color: #ffffff !important;
+    color: var(--color-on-primary) !important;
     background: var(--color-primary) !important;
 }
 

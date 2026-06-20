@@ -92,7 +92,7 @@ body {
 
 #actionButton,
 #creationbutton {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background-color: var(--color-primary);
     border-color: var(--color-primary);
     border-radius: var(--radius-sm);
@@ -103,7 +103,7 @@ body {
 #actionButton:focus,
 #creationbutton:hover,
 #creationbutton:focus {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background-color: var(--color-primary-strong);
     border-color: var(--color-primary-strong);
 }

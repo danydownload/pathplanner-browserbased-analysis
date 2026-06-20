@@ -42,7 +42,7 @@ body.error-page {
 }
 
 #actionButton {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background-color: var(--color-primary);
     border-color: var(--color-primary);
     border-radius: var(--radius-sm);
@@ -51,7 +51,7 @@ body.error-page {
 
 #actionButton:hover,
 #actionButton:focus {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background-color: var(--color-primary-strong);
     border-color: var(--color-primary-strong);
 }

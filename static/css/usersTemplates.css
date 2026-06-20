@@ -68,7 +68,7 @@ form textarea:focus {
 #creationbutton,
 .profile-page .btn-primary,
 .profile-page .btn-success {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background-color: var(--color-primary);
     border-color: var(--color-primary);
     border-radius: var(--radius-sm);
@@ -83,7 +83,7 @@ form textarea:focus {
 .profile-page .btn-primary:focus,
 .profile-page .btn-success:hover,
 .profile-page .btn-success:focus {
-    color: #ffffff;
+    color: var(--color-on-primary);
     background-color: var(--color-primary-strong);
     border-color: var(--color-primary-strong);
 }

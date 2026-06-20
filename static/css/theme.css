@@ -8,6 +8,9 @@
     --color-text: #142235;
     --color-text-muted: #607089;
     --color-border: #d8e3ee;
+    --color-on-primary: #ffffff;
+    --color-control-thumb: #ffffff;
+    --color-logo-plate: #ffffff;
 
     --color-sidebar: #0f1f33;
     --color-sidebar-strong: #0a1626;
@@ -19,6 +22,7 @@
     --color-primary: #0f766e;
     --color-primary-strong: #0b5f59;
     --color-primary-soft: #d9f4ef;
+    --color-primary-soft-text: #dffbf7;
     --color-navigation: #2563eb;
     --color-navigation-strong: #1d4ed8;
     --color-clinical: #14b8a6;
