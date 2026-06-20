@@ -15,7 +15,12 @@
             <img src="{% static 'img/flavicon.png' %}" alt="Unimore Maps">
             <span>Unimore Maps</span>
         </a>
-        <h2 id="myTitle">{% block h %}{% endblock %}</h2>
+        <div class="preferences-header">
+            <h2 id="myTitle">{% block h %}{% endblock %}</h2>
+            <a href="{% url 'users:profile' %}" class="btn btn-secondary back-to-profile">
+                ← Back to profile
+            </a>
+        </div>
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <table class="preferences-table">

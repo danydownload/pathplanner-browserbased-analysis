@@ -4,6 +4,7 @@ from django.contrib.auth import login, logout
 from django.contrib import messages
 from django.urls import reverse_lazy
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
+from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import UserProfile, UserPreferences
 from .forms import UserProfileForm, UserPreferencesForm
 from core.views import CustomRequired, AddItemView, EditItemView, DeleteItemView, UpdateView
@@ -31,12 +32,18 @@ class LoginView(FormView):
     success_url = reverse_lazy('map')
     success_message = 'Successfully logged in. Welcome back!'
 
+    def get_success_url(self):
+        next_url = self.request.POST.get('next') or self.request.GET.get('next')
+        if next_url:
+            return next_url
+        return super().get_success_url()
+
     def form_valid(self, form):
         user = form.get_user()
         login(self.request, user)
         messages.success(self.request, self.success_message)
         return super().form_valid(form)
-    
+
 
 # Class based view to manage user logout logics
 class LogoutView(View):
@@ -66,7 +73,7 @@ class ViewProfileView(CustomRequired, ListView):
 
 
 # Class based view for editing your profile
-class EditProfileView(CustomRequired, UpdateView):
+class EditProfileView(LoginRequiredMixin, UpdateView):
     model = UserProfile
     form_class = UserProfileForm
     template_name = 'edit_profile.html'

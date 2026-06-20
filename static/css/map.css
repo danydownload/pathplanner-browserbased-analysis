@@ -1708,6 +1708,24 @@ body.directions-open .directions-panel {
     transform: translateX(0);
 }
 
+/* Split layout: when both the environmental sidebar and the directions
+   panel are open, stack them as two independently scrollable halves of
+   the right-hand strip instead of overlapping. */
+body.right-sidebar-open.directions-open .right-sidebar {
+    top: 16px;
+    right: 16px;
+    bottom: calc(50% - 8px);
+    width: min(380px, calc(100vw - 32px));
+    border-radius: var(--radius-lg);
+}
+
+body.right-sidebar-open.directions-open .directions-panel {
+    top: calc(50% + 8px);
+    right: 16px;
+    bottom: 16px;
+    width: min(380px, calc(100vw - 32px));
+}
+
 .directions-header {
     display: flex;
     align-items: flex-start;

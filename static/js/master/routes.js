@@ -2200,12 +2200,17 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
             window.RouteStepSimulator.stop();
             setRoutePreviewButtonState(previewButton, 'running');
 
-            const stepCount = Math.max(1, getRouteDirectionSteps(selectedRoute).length || 1);
+            const transportMode = document.getElementById('transportMode')?.value || 'walking';
+            const speedByMode = {
+                walking: 1.2,
+                cycling: 4,
+                driving: 12
+            };
             window.RouteStepSimulator.start({
                 map,
                 route: selectedRoute,
                 directionsListElement: document.getElementById('directionsList'),
-                stepDurationMs: Math.max(1500, 15000 / stepCount),
+                speedMps: speedByMode[transportMode] || speedByMode.walking,
                 followCamera: true,
                 onStepEnter: (index, el) => {
                     el.classList.add('directions-step--active');

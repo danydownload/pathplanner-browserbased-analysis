@@ -31,10 +31,27 @@ body {
 }
 
 #myTitle {
-    margin: 0 0 24px;
+    margin: 0;
     color: var(--color-text);
     font-size: clamp(1.6rem, 3vw, 2.15rem);
     font-weight: 800;
+}
+
+.preferences-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+.back-to-profile {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    white-space: nowrap;
 }
 
 .preferences-table {

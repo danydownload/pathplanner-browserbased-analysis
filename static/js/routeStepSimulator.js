@@ -14,6 +14,8 @@
   const L = global.L;
   const ROUTE_PREVIEW_FOLLOW_ZOOM = 17;
   const ROUTE_PREVIEW_CAMERA_THROTTLE_MS = 80;
+  const MIN_STEP_DURATION_MS = 1500;
+  const MAX_STEP_DURATION_MS = 10000;
 
   let activeRun = null;
 
@@ -339,11 +341,12 @@
     return null;
   }
 
-  function findNearestPathIndex(path, target, minIndex) {
+  function findNearestPathIndex(path, target, minIndex, maxIndex) {
     let bestIndex = -1;
     let bestDistance = Infinity;
+    const end = Number.isInteger(maxIndex) ? Math.min(maxIndex, path.length - 1) : path.length - 1;
 
-    for (let i = minIndex; i < path.length; i++) {
+    for (let i = Math.max(0, minIndex); i <= end; i++) {
       const d = distanceBetweenLatLngs(path[i], target);
       if (d < bestDistance) {
         bestDistance = d;
@@ -354,23 +357,64 @@
     return bestIndex;
   }
 
+  function findPathIndexAtDistance(track, targetDistance) {
+    const { path, segmentLengths } = track;
+    if (targetDistance <= 0 || segmentLengths.length === 0) {
+      return 0;
+    }
+
+    let distanceSoFar = 0;
+    for (let i = 0; i < segmentLengths.length; i++) {
+      if (distanceSoFar + segmentLengths[i] >= targetDistance) {
+        return i + 1;
+      }
+      distanceSoFar += segmentLengths[i];
+    }
+
+    return path.length - 1;
+  }
+
   function splitPathIntoStepSegments(path, steps) {
     const segments = [];
     if (!steps.length) {
       return segments;
     }
 
+    const track = buildRoutePreviewTrack(path);
+    const totalPathLength = track.totalLength;
+    const totalStepDistance = steps.reduce(
+      (sum, step) => sum + (Number.isFinite(step?.distance) && step.distance > 0 ? step.distance : 0),
+      0
+    );
+    const hasReliableDistances = totalStepDistance > 0 && totalPathLength > 0;
+
     const splitIndices = [0];
     let lastIndex = 0;
+    let stepDistanceSoFar = 0;
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
       let locIndex = -1;
 
+      if (hasReliableDistances && Number.isFinite(step?.distance) && step.distance > 0) {
+        stepDistanceSoFar += step.distance;
+        const targetDistance = (stepDistanceSoFar / totalStepDistance) * totalPathLength;
+        locIndex = findPathIndexAtDistance(track, targetDistance);
+      }
+
       const location = parseStepLocation(step);
       if (location) {
-        locIndex = findNearestPathIndex(path, location, lastIndex);
+        const searchWindow = 6;
+        const searchStart = Math.max(lastIndex, locIndex >= 0 ? locIndex - searchWindow : lastIndex);
+        const searchEnd = locIndex >= 0
+          ? Math.min(path.length - 1, locIndex + searchWindow)
+          : path.length - 1;
+        const nearestIndex = findNearestPathIndex(path, location, searchStart, searchEnd);
+        if (nearestIndex >= 0) {
+          locIndex = nearestIndex;
+        }
       } else if (
+        locIndex < 0 &&
         Number.isInteger(step?.index) &&
         step.index >= lastIndex &&
         step.index < path.length
@@ -487,6 +531,7 @@
       route,
       directionsListElement,
       stepDurationMs = 15000,
+      speedMps,
       followCamera = true,
       onStepEnter,
       onStepLeave,
@@ -518,6 +563,17 @@
 
     segments.forEach((segment) => {
       segment.track = buildRoutePreviewTrack(segment.path);
+      if (typeof speedMps === 'number' && speedMps > 0 && segment.track.totalLength > 0) {
+        const durationMs = (segment.track.totalLength / speedMps) * 1000;
+        segment.durationMs = Math.max(
+          MIN_STEP_DURATION_MS,
+          Math.min(MAX_STEP_DURATION_MS, durationMs)
+        );
+      } else if (segment.track.totalLength <= 0) {
+        segment.durationMs = MIN_STEP_DURATION_MS;
+      } else {
+        segment.durationMs = stepDurationMs;
+      }
     });
 
     const items = directionsListElement
@@ -573,11 +629,10 @@
         return;
       }
 
-      const elapsed = timestamp - run.stepStartTime;
-      const linearProgress = Math.max(0, Math.min(1, elapsed / run.stepDurationMs));
-      const progress = easeInOutCubic(linearProgress);
-
       const segment = run.segments[run.currentStepIndex];
+      const elapsed = timestamp - run.stepStartTime;
+      const linearProgress = Math.max(0, Math.min(1, elapsed / segment.durationMs));
+      const progress = easeInOutCubic(linearProgress);
       const targetDistance = segment.track.totalLength * progress;
       const previewPosition = interpolateRoutePreviewPosition(segment.track, targetDistance);
 

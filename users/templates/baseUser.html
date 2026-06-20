@@ -20,6 +20,7 @@
         {% block lead %}{% endblock %}
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.GET.next }}">
             {% block form_content %}
                 {{ form|crispy }}
             {% endblock %}
