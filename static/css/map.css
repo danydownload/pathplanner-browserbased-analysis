@@ -282,6 +282,97 @@ input[type="range"]::-moz-range-thumb {
     border-color: rgba(220, 38, 38, 0.45);
 }
 
+.route-preview-controls {
+    margin: 0 0 12px;
+}
+
+.route-preview-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 38px;
+    gap: 8px;
+    color: var(--color-on-primary);
+    background: var(--route-primary);
+    border: 1px solid var(--route-primary-strong);
+    border-radius: var(--radius-sm);
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 750;
+    cursor: pointer;
+    transition: background-color 0.18s ease, border-color 0.18s ease, opacity 0.18s ease, transform 0.18s ease;
+}
+
+.route-preview-button:hover,
+.route-preview-button:focus {
+    color: var(--color-on-primary);
+    background: var(--route-primary-strong);
+    border-color: var(--route-primary-strong);
+}
+
+.route-preview-button:focus-visible {
+    outline: 3px solid var(--route-primary);
+    outline-offset: 2px;
+}
+
+.route-preview-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.route-preview-button[data-preview-state="running"] {
+    transform: translateY(-1px);
+}
+
+.route-preview-button-icon {
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-top: 6px solid transparent;
+    border-bottom: 6px solid transparent;
+    border-left: 9px solid currentColor;
+}
+
+.route-preview-cursor {
+    position: relative;
+    width: 30px !important;
+    height: 30px !important;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--route-primary) 24%, transparent);
+    pointer-events: none;
+}
+
+.route-preview-cursor::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid var(--route-primary);
+    border-radius: inherit;
+    animation: route-preview-pulse 1.2s ease-out infinite;
+}
+
+.route-preview-cursor-core {
+    position: absolute;
+    inset: 7px;
+    border: 3px solid var(--color-on-primary);
+    border-radius: inherit;
+    background: var(--route-primary-strong);
+    box-shadow: 0 0 0 2px var(--route-primary);
+}
+
+@keyframes route-preview-pulse {
+    from {
+        transform: scale(0.72);
+        opacity: 0.85;
+    }
+
+    to {
+        transform: scale(1.42);
+        opacity: 0;
+    }
+}
+
 .layer-toggle,
 .user-toggle {
     display: flex;

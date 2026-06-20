@@ -9,6 +9,13 @@ import * as RoutePlanner from '../services/routePlanner.js';
 
 const MAPBOX_ACCESS_TOKEN = globalThis.window?.MAPBOX_ACCESS_TOKEN || '';
 const ROUTE_COORDINATE_PRECISION = 5;
+const ROUTE_PREVIEW_DURATION_MS = 6500;
+const routePreviewState = {
+    marker: null,
+    animationFrame: null,
+    activeButton: null,
+    activeRoutePanelId: null
+};
 
 function getThemeColor(variableName, fallback) {
     try {
@@ -171,6 +178,249 @@ function getRouteCoordinates(route) {
     }
 
     return [];
+}
+
+function normalizeRoutePreviewPath(route) {
+    const leaflet = globalThis.L;
+    const coordinates = getRouteCoordinates(route);
+    const path = [];
+
+    coordinates
+        .map(coordinateToLatLon)
+        .filter(Boolean)
+        .forEach(({ lat, lon }) => {
+            const previous = path[path.length - 1];
+            if (previous && coordinatesNearlyEqual(previous.lat, lat) && coordinatesNearlyEqual(previous.lng, lon)) {
+                return;
+            }
+
+            path.push(leaflet && typeof leaflet.latLng === 'function'
+                ? leaflet.latLng(lat, lon)
+                : { lat, lng: lon });
+        });
+
+    return path;
+}
+
+function getLatLngLongitude(latLng) {
+    return latLng?.lng ?? latLng?.lon ?? latLng?.longitude;
+}
+
+function distanceBetweenLatLngs(start, end) {
+    if (start && typeof start.distanceTo === 'function') {
+        return start.distanceTo(end);
+    }
+
+    const startLat = parseCoordinateValue(start?.lat);
+    const startLon = parseCoordinateValue(getLatLngLongitude(start));
+    const endLat = parseCoordinateValue(end?.lat);
+    const endLon = parseCoordinateValue(getLatLngLongitude(end));
+
+    if ([startLat, startLon, endLat, endLon].some(value => value === null)) {
+        return 0;
+    }
+
+    const earthRadiusMeters = 6371000;
+    const toRadians = degrees => degrees * Math.PI / 180;
+    const deltaLat = toRadians(endLat - startLat);
+    const deltaLon = toRadians(endLon - startLon);
+    const a = Math.sin(deltaLat / 2) ** 2 +
+        Math.cos(toRadians(startLat)) * Math.cos(toRadians(endLat)) *
+        Math.sin(deltaLon / 2) ** 2;
+
+    return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function buildRoutePreviewTrack(path) {
+    const segmentLengths = [];
+    let totalLength = 0;
+
+    for (let i = 1; i < path.length; i++) {
+        const segmentLength = distanceBetweenLatLngs(path[i - 1], path[i]);
+        segmentLengths.push(segmentLength);
+        totalLength += segmentLength;
+    }
+
+    return { path, segmentLengths, totalLength };
+}
+
+function interpolateRoutePreviewPosition(track, targetDistance) {
+    const { path, segmentLengths } = track;
+    let distanceSoFar = 0;
+
+    for (let i = 0; i < segmentLengths.length; i++) {
+        const segmentLength = segmentLengths[i];
+        const segmentStart = path[i];
+        const segmentEnd = path[i + 1];
+
+        if (segmentLength <= 0) {
+            continue;
+        }
+
+        if (distanceSoFar + segmentLength >= targetDistance) {
+            const segmentProgress = Math.max(0, Math.min(1, (targetDistance - distanceSoFar) / segmentLength));
+            const lat = segmentStart.lat + (segmentEnd.lat - segmentStart.lat) * segmentProgress;
+            const startLon = getLatLngLongitude(segmentStart);
+            const endLon = getLatLngLongitude(segmentEnd);
+            const lng = startLon + (endLon - startLon) * segmentProgress;
+            const leaflet = globalThis.L;
+
+            return leaflet && typeof leaflet.latLng === 'function'
+                ? leaflet.latLng(lat, lng)
+                : { lat, lng };
+        }
+
+        distanceSoFar += segmentLength;
+    }
+
+    return path[path.length - 1];
+}
+
+function createRoutePreviewIcon() {
+    const leaflet = globalThis.L;
+
+    if (!leaflet || typeof leaflet.divIcon !== 'function') {
+        return null;
+    }
+
+    return leaflet.divIcon({
+        className: 'route-preview-cursor',
+        html: '<span class="route-preview-cursor-core" aria-hidden="true"></span>',
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+    });
+}
+
+function resetRoutePreviewButton(button) {
+    if (!button) {
+        return;
+    }
+
+    button.removeAttribute('data-preview-state');
+    button.removeAttribute('aria-busy');
+}
+
+function setRoutePreviewButtonState(button, state) {
+    if (!button) {
+        return;
+    }
+
+    button.dataset.previewState = state;
+    button.setAttribute('aria-busy', state === 'running' ? 'true' : 'false');
+}
+
+function notifyRoutePreviewUnavailable(message) {
+    if (globalThis.toastr && typeof globalThis.toastr.warning === 'function') {
+        globalThis.toastr.warning(message);
+    } else {
+        console.warn(`[route-preview] ${message}`);
+    }
+}
+
+function stopRoutePreview(map) {
+    if (routePreviewState.animationFrame !== null && typeof globalThis.cancelAnimationFrame === 'function') {
+        globalThis.cancelAnimationFrame(routePreviewState.animationFrame);
+    }
+
+    if (routePreviewState.marker) {
+        try {
+            if (map && typeof map.hasLayer === 'function' && map.hasLayer(routePreviewState.marker)) {
+                map.removeLayer(routePreviewState.marker);
+            } else if (typeof routePreviewState.marker.remove === 'function') {
+                routePreviewState.marker.remove();
+            }
+        } catch (error) {
+            console.warn('[route-preview] Error removing preview marker:', error);
+        }
+    }
+
+    resetRoutePreviewButton(routePreviewState.activeButton);
+    routePreviewState.marker = null;
+    routePreviewState.animationFrame = null;
+    routePreviewState.activeButton = null;
+    routePreviewState.activeRoutePanelId = null;
+}
+
+function startRoutePreview(map, route, button) {
+    const leaflet = globalThis.L;
+
+    stopRoutePreview(map);
+
+    if (!map || !leaflet || typeof leaflet.marker !== 'function') {
+        notifyRoutePreviewUnavailable('Route preview is not available on this map.');
+        return false;
+    }
+
+    const path = normalizeRoutePreviewPath(route);
+    if (path.length < 2) {
+        notifyRoutePreviewUnavailable('Select a route with geometry before previewing it.');
+        return false;
+    }
+
+    const track = buildRoutePreviewTrack(path);
+    if (track.totalLength <= 0) {
+        notifyRoutePreviewUnavailable('This route is too short to preview.');
+        return false;
+    }
+
+    const icon = createRoutePreviewIcon();
+    const markerOptions = {
+        interactive: false,
+        keyboard: false,
+        zIndexOffset: 1200
+    };
+
+    if (icon) {
+        markerOptions.icon = icon;
+    }
+
+    const marker = leaflet.marker(path[0], markerOptions).addTo(map);
+    routePreviewState.marker = marker;
+    routePreviewState.activeButton = button || null;
+    routePreviewState.activeRoutePanelId = route?.routePanelId || null;
+    setRoutePreviewButtonState(button, 'running');
+
+    const startedAt = typeof globalThis.performance?.now === 'function'
+        ? globalThis.performance.now()
+        : Date.now();
+    const requestFrame = typeof globalThis.requestAnimationFrame === 'function'
+        ? globalThis.requestAnimationFrame.bind(globalThis)
+        : callback => globalThis.setTimeout(() => callback(Date.now()), 16);
+
+    const animate = timestamp => {
+        const elapsed = timestamp - startedAt;
+        const progress = Math.max(0, Math.min(1, elapsed / ROUTE_PREVIEW_DURATION_MS));
+        const targetDistance = track.totalLength * progress;
+        marker.setLatLng(interpolateRoutePreviewPosition(track, targetDistance));
+
+        if (progress < 1) {
+            routePreviewState.animationFrame = requestFrame(animate);
+            return;
+        }
+
+        routePreviewState.animationFrame = null;
+        setRoutePreviewButtonState(button, 'complete');
+    };
+
+    routePreviewState.animationFrame = requestFrame(animate);
+    return true;
+}
+
+function getSelectedRouteIndexFromPanel(container, routes, fallbackIndex = 0) {
+    const selectedRadio = container?.querySelector?.('input[name="route-selection"]:checked') ||
+        globalThis.document?.querySelector?.('.route-selector input[name="route-selection"]:checked');
+    const selectedIndex = selectedRadio ? Number.parseInt(selectedRadio.dataset.index, 10) : NaN;
+
+    if (Number.isInteger(selectedIndex) && selectedIndex >= 0 && selectedIndex < routes.length) {
+        return selectedIndex;
+    }
+
+    const bestRouteIndex = routes.findIndex(route => route.isBest);
+    if (bestRouteIndex !== -1) {
+        return bestRouteIndex;
+    }
+
+    return Math.max(0, Math.min(fallbackIndex, routes.length - 1));
 }
 
 function buildRouteGeometryKey(route) {
@@ -1308,6 +1558,7 @@ function generateDefaultRoutePatterns(condition, waypoints, transportMode) {
 function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondition, currentPreferences, csvData) {
     routes = Array.isArray(routes) ? routes : [];
     console.log(`[setupRouteControlPanel] Setting up control panel with ${routes.length} routes. Condition: ${currentPatientCondition ? currentPatientCondition.name : 'N/A'}, Prefs: ${currentPreferences ? currentPreferences.label : 'N/A'}`);
+    stopRoutePreview(map);
 
     // Remove existing panel if it exists
     if (window.routeControlPanel) {
@@ -1394,6 +1645,7 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
     });
 
     function removeRouteAtIndex(routeIndex) {
+        stopRoutePreview(map);
         const routeToRemove = routes[routeIndex];
         if (!routeToRemove) {
             return;
@@ -1467,6 +1719,29 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
             instructions.style.marginBottom = '12px';
             instructions.style.fontSize = '13px';
             instructions.style.color = '#666';
+
+            const previewControls = L.DomUtil.create('div', 'route-preview-controls', container);
+            const previewButton = L.DomUtil.create('button', 'route-preview-button', previewControls);
+            previewButton.type = 'button';
+            previewButton.title = 'Preview selected route';
+            previewButton.setAttribute('aria-label', 'Preview selected route from start to arrival');
+            previewButton.innerHTML = '<span class="route-preview-button-icon" aria-hidden="true"></span><span>Preview route</span>';
+
+            const updatePreviewButtonState = () => {
+                const selectedRoute = routes[getSelectedRouteIndexFromPanel(container, routes, initialSelectedIndex)];
+                const canPreview = normalizeRoutePreviewPath(selectedRoute).length >= 2;
+                previewButton.disabled = !canPreview;
+                previewButton.title = canPreview ? 'Preview selected route' : 'Select a route with geometry first';
+            };
+
+            L.DomEvent.disableClickPropagation(previewControls);
+            L.DomEvent.disableScrollPropagation(previewControls);
+            L.DomEvent.on(previewButton, 'click', function(e) {
+                L.DomEvent.stop(e);
+                const selectedRoute = routes[getSelectedRouteIndexFromPanel(container, routes, initialSelectedIndex)];
+                startRoutePreview(map, selectedRoute, previewButton);
+            });
+            updatePreviewButtonState();
 
             if (routes.length === 2) {
                 const comparisonHeader = L.DomUtil.create('div', 'comparison-header', container);
@@ -1614,6 +1889,7 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
                     if (!this.checked) return;
                     const selectedIdx = parseInt(this.dataset.index);
                     console.log(`[setupRouteControlPanel] Radio changed. Selected route index: ${selectedIdx}`);
+                    stopRoutePreview(map);
 
                     routes.forEach((r, i) => {
                         r.isBest = (i === selectedIdx);
@@ -1681,6 +1957,7 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
 	                        const textElement = item.querySelector('div > div:first-child');
 	                        if (textElement) textElement.style.fontWeight = isSelected ? 'bold' : 'normal';
 	                    });
+                    updatePreviewButtonState();
 
                     if (typeof Scores !== 'undefined' && Scores.extractScoreData) {
                         try {
