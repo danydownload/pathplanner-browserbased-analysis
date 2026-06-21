@@ -80,6 +80,59 @@ function nearestPoiDistance(point, poiList) {
     return minDist;
 }
 
+function buildPoiSpatialIndex(poiList, cellSizeMeters = 200) {
+    if (!poiList || poiList.length === 0) return null;
+    const refLat = poiList[0].lat;
+    const latMetersPerDegree = 111320;
+    const lonMetersPerDegree = 111320 * Math.cos(refLat * Math.PI / 180) || 1;
+    const cellSizeLat = cellSizeMeters / latMetersPerDegree;
+    const cellSizeLon = cellSizeMeters / lonMetersPerDegree;
+    const cells = new Map();
+    for (const poi of poiList) {
+        const key = `${Math.floor(poi.lat / cellSizeLat)},${Math.floor(poi.lon / cellSizeLon)}`;
+        if (!cells.has(key)) cells.set(key, []);
+        cells.get(key).push(poi);
+    }
+    return { cells, cellSizeLat, cellSizeLon };
+}
+
+function nearestPoiDistanceWithIndex(point, spatialIndex) {
+    if (!spatialIndex || !spatialIndex.cells || spatialIndex.cells.size === 0) return Infinity;
+    const { cells, cellSizeLat, cellSizeLon } = spatialIndex;
+    const cellLat = Math.floor(point.lat / cellSizeLat);
+    const cellLon = Math.floor(point.lon / cellSizeLon);
+    let minDist = Infinity;
+    for (let dLat = -1; dLat <= 1; dLat++) {
+        for (let dLon = -1; dLon <= 1; dLon++) {
+            const key = `${cellLat + dLat},${cellLon + dLon}`;
+            const pois = cells.get(key);
+            if (!pois) continue;
+            for (const poi of pois) {
+                const d = calculateDistance(point, poi);
+                if (d < minDist) minDist = d;
+            }
+        }
+    }
+    return minDist;
+}
+
+function precomputePoiDistances(grid, poiLists) {
+    const poiDistances = {};
+    const spatialIndices = {};
+    for (const category in poiLists) {
+        spatialIndices[category] = buildPoiSpatialIndex(poiLists[category], 200);
+    }
+    for (const node of grid) {
+        const nodeId = nodeToId(node);
+        const distances = {};
+        for (const category in poiLists) {
+            distances[category] = nearestPoiDistanceWithIndex(node, spatialIndices[category]);
+        }
+        poiDistances[nodeId] = distances;
+    }
+    return poiDistances;
+}
+
 function applyPreferencePoiAdjustment(cost, weight, nearestDistanceMeters) {
     if (weight && typeof weight === 'number' && Number.isFinite(nearestDistanceMeters)) {
         cost += -weight * 5.0 * Math.exp(-nearestDistanceMeters / 200.0);
@@ -105,6 +158,9 @@ export async function findOptimalRoute(start, goal, map, patientCondition, envir
     // Create a search grid around the route
     const grid = createSearchGrid(start, goal, gridResolution);
     console.log(`Created search grid with ${grid.length} nodes`);
+
+    // Precompute nearest-POI distances for all grid nodes once
+    const poiDistances = poiLists ? precomputePoiDistances(grid, poiLists) : null;
     
     // Initialize open and closed sets
     const openSet = new PriorityQueue();
@@ -155,7 +211,7 @@ export async function findOptimalRoute(start, goal, map, patientCondition, envir
             if (closedSet.has(neighborId)) continue;
             
             // Calculate tentative g-score (distance + environmental factors)
-            const tentativeGScore = await calculateCost(current, neighbor, gScore[currentId], patientCondition, environmentalData, preferences, poiLists);
+            const tentativeGScore = await calculateCost(current, neighbor, gScore[currentId], patientCondition, environmentalData, preferences, poiLists, poiDistances);
             
             // Check if this path is better than any previous one
             const neighborInOpenSet = openSet.contains(neighborId);
@@ -255,9 +311,10 @@ function getNeighbors(node, grid, resolution) {
  * @param {Array} environmentalData - Pre-loaded environmental data
  * @returns {Number} Cost value (g-score)
  */
-async function calculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, preferences = null, poiLists = null) {
+async function calculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, preferences = null, poiLists = null, poiDistances = null) {
     // Base cost is the physical distance
     const distance = calculateDistance(current, neighbor);
+    const neighborId = nodeToId(neighbor);
     let cost = currentGScore + distance;
     
     // Get environmental data hierarchy: 1) tile cache 2) supplied list 3) live API
@@ -390,13 +447,14 @@ async function calculateCost(current, neighbor, currentGScore, patientCondition,
     }
 
     // Apply POI-based preference adjustments when real POI data is available
-    if (poiLists) {
+    if (poiLists || poiDistances) {
         const poiCategories = ['nature', 'entertainment', 'nightlife', 'tourism', 'hospital'];
+        const distances = poiDistances?.[neighborId];
         for (const category of poiCategories) {
             const patientKey = 'patient' + category.charAt(0).toUpperCase() + category.slice(1);
             const weight = (patientCondition?.[patientKey] || 0) + (preferences?.[category] || 0);
             if (weight !== 0) {
-                const nearestDist = nearestPoiDistance(neighbor, poiLists[category]);
+                const nearestDist = distances?.[category] ?? nearestPoiDistance(neighbor, poiLists?.[category]);
                 cost = applyPreferencePoiAdjustment(cost, weight, nearestDist);
             }
         }
@@ -725,8 +783,8 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
         
         // Create a modified cost calculation function with penalties
         const originalCalculateCost = calculateCost;
-        const calculateCostWithPenalties = async (current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists) => {
-            let cost = await originalCalculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists);
+        const calculateCostWithPenalties = async (current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists, poiDistances) => {
+            let cost = await originalCalculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists, poiDistances);
             
             // Add penalties for previously visited nodes
             const neighborId = nodeToId(neighbor);

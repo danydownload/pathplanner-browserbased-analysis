@@ -8,6 +8,7 @@ waypoint + Mapbox/ORS flow in routePlanner.js.
 import heapq
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 
 from .environmental_data_service import environmental_data_service
@@ -248,6 +249,32 @@ def nearest_poi_distance(node: Dict[str, float], poi_list: List[Tuple[float, flo
     )
 
 
+def _compute_node_distances(
+    node: Dict[str, float], poi_lists: Dict[str, List[Tuple[float, float]]]
+) -> Tuple[str, Dict[str, Optional[float]]]:
+    """Worker: nearest POI distance for one grid node across all categories."""
+    distances: Dict[str, Optional[float]] = {}
+    for category, poi_list in poi_lists.items():
+        distances[category] = nearest_poi_distance(node, poi_list)
+    return _node_id(node), distances
+
+
+def precompute_poi_distances(
+    grid: List[Dict[str, float]], poi_lists: Dict[str, List[Tuple[float, float]]], max_workers: int = 4
+) -> Dict[str, Dict[str, Optional[float]]]:
+    """Precompute nearest-POI distances for every grid node in parallel."""
+    if not grid or not poi_lists:
+        return {}
+
+    result: Dict[str, Dict[str, Optional[float]]] = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for node_id, distances in executor.map(
+            lambda node: _compute_node_distances(node, poi_lists), grid
+        ):
+            result[node_id] = distances
+    return result
+
+
 def apply_preference_poi_adjustment(cost: float, weight: float, distance_m: Optional[float]) -> float:
     """Reward positive weights for closeness to POIs; penalize for negative weights."""
     if weight and distance_m is not None and distance_m >= 0:
@@ -280,6 +307,7 @@ def calculate_edge_cost(
     patient: Dict[str, Any],
     preferences: Optional[Dict[str, float]] = None,
     poi_lists: Optional[Dict[str, List[Tuple[float, float]]]] = None,
+    poi_distances: Optional[Dict[str, Dict[str, Optional[float]]]] = None,
 ) -> float:
     """Port of environmentalAStar.js calculateCost (g-score increment)."""
     cost = current_g + haversine_m(current, neighbor)
@@ -348,30 +376,38 @@ def calculate_edge_cost(
 
     # Real POI-based preference adjustments (fallback to proxies above when POI data is missing)
     if poi_lists:
+        neighbor_id = _node_id(neighbor)
+        cached_distances = poi_distances.get(neighbor_id, {}) if poi_distances else {}
+
+        def _poi_distance(category: str) -> Optional[float]:
+            if cached_distances:
+                return cached_distances.get(category)
+            return nearest_poi_distance(neighbor, poi_lists.get(category, []))
+
         cost = apply_preference_poi_adjustment(
             cost,
             patient.get('patientNature', 0) + prefs.get('nature', 0),
-            nearest_poi_distance(neighbor, poi_lists.get('nature', [])),
+            _poi_distance('nature'),
         )
         cost = apply_preference_poi_adjustment(
             cost,
             patient.get('patientHospital', 0) + prefs.get('hospital', 0),
-            nearest_poi_distance(neighbor, poi_lists.get('hospital', [])),
+            _poi_distance('hospital'),
         )
         cost = apply_preference_poi_adjustment(
             cost,
             patient.get('patientEntertainment', 0) + prefs.get('entertainment', 0),
-            nearest_poi_distance(neighbor, poi_lists.get('entertainment', [])),
+            _poi_distance('entertainment'),
         )
         cost = apply_preference_poi_adjustment(
             cost,
             patient.get('patientNightlife', 0) + prefs.get('nightlife', 0),
-            nearest_poi_distance(neighbor, poi_lists.get('nightlife', [])),
+            _poi_distance('nightlife'),
         )
         cost = apply_preference_poi_adjustment(
             cost,
             patient.get('patientTourism', 0) + prefs.get('tourism', 0),
-            nearest_poi_distance(neighbor, poi_lists.get('tourism', [])),
+            _poi_distance('tourism'),
         )
 
     return cost
@@ -416,6 +452,7 @@ def find_optimal_route(
     resolution = grid_resolution_m or _adaptive_resolution(start, goal)
     grid = create_search_grid(start, goal, resolution)
     poi_lists = get_poi_lists_for_grid(grid)
+    poi_distances = precompute_poi_distances(grid, poi_lists) if poi_lists else None
 
     open_heap: List[Tuple[float, int, Dict[str, float]]] = []
     counter = 0
@@ -461,7 +498,7 @@ def find_optimal_route(
             if nid in closed:
                 continue
 
-            tentative = calculate_edge_cost(current, neighbor, g_score[cid], patient, preferences, poi_lists)
+            tentative = calculate_edge_cost(current, neighbor, g_score[cid], patient, preferences, poi_lists, poi_distances)
 
             if nid not in g_score or tentative < g_score[nid]:
                 came_from[nid] = current
