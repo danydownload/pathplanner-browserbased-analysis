@@ -570,6 +570,9 @@ const ON_ROUTE_POI_CATEGORIES = [
             text: `Passa accanto a: ${park.name || 'Area verde'} `,
             distance: `~${park.distanceM} m`,
         }),
+        // Map markers are drawn only when this preference is active (weight > 0).
+        preferenceKey: 'nature',
+        marker: { color: '#2e7d32', emoji: '🌳', fallback: 'Area verde' },
     },
     {
         id: 'hospitals',
@@ -583,11 +586,109 @@ const ON_ROUTE_POI_CATEGORIES = [
             text: `Passa accanto a: ${hospital.name || 'Struttura sanitaria'} `,
             distance: `~${hospital.distanceM} m`,
         }),
+        preferenceKey: 'hospital',
+        marker: { color: '#c62828', emoji: '🏥', fallback: 'Struttura sanitaria' },
     },
     // EXTENSION POINT — to add a category push:
     // { id, title, loadingLabel, emptyLabel,
-    //   fetchItems(routeCoordinates) -> Promise<item[]>, formatItem(item) -> {text, distance?} }
+    //   fetchItems(routeCoordinates) -> Promise<item[]>, formatItem(item) -> {text, distance?},
+    //   preferenceKey?, marker?: { color, emoji, fallback } }
 ];
+
+// Dedicated Leaflet layer for the real on-route POI markers (parks/hospitals).
+// A single LayerGroup so re-renders can wipe phantom markers via clearLayers().
+let _onRoutePoiMarkerLayer = null;
+
+function getOnRoutePoiMarkerLayer() {
+    const map = globalThis.window && globalThis.window.map;
+    if (!map || typeof L === 'undefined') {
+        return null;
+    }
+    if (!_onRoutePoiMarkerLayer) {
+        _onRoutePoiMarkerLayer = L.layerGroup();
+    }
+    if (!map.hasLayer(_onRoutePoiMarkerLayer)) {
+        _onRoutePoiMarkerLayer.addTo(map);
+    }
+    return _onRoutePoiMarkerLayer;
+}
+
+/** A preference is active (and so should draw markers) when its weight > 0. */
+function isPoiPreferenceActive(preferenceKey) {
+    const prefs = globalThis.window && globalThis.window.currentPreferences;
+    if (!prefs || !preferenceKey) {
+        return false;
+    }
+    const weight = Number(prefs[preferenceKey]);
+    return Number.isFinite(weight) && weight > 0;
+}
+
+/** Teardrop pin divIcon, distinct per category (colour + emoji). Theme-agnostic. */
+function createPoiMarkerIcon(category) {
+    const color = category?.marker?.color || '#1976d2';
+    const emoji = category?.marker?.emoji || '📍';
+    return L.divIcon({
+        className: 'on-route-poi-marker',
+        html: `<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;`
+            + `transform:rotate(-45deg);background:${color};border:2px solid #fff;`
+            + `box-shadow:0 1px 4px rgba(0,0,0,0.4);display:flex;align-items:center;`
+            + `justify-content:center;"><span style="transform:rotate(45deg);`
+            + `font-size:14px;line-height:1;">${emoji}</span></div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 26],
+        popupAnchor: [0, -26],
+        tooltipAnchor: [0, -22],
+    });
+}
+
+/** Popup body built from DOM nodes (textContent) so OSM names cannot inject HTML. */
+function buildPoiPopupContent(label, distanceM) {
+    const wrap = document.createElement('div');
+    const name = document.createElement('strong');
+    name.textContent = label;
+    wrap.appendChild(name);
+    if (Number.isFinite(distanceM)) {
+        wrap.appendChild(document.createElement('br'));
+        const dist = document.createElement('span');
+        dist.textContent = `~${distanceM} m dal percorso`;
+        wrap.appendChild(dist);
+    }
+    return wrap;
+}
+
+/**
+ * Draw markers for the SAME real items already fetched for the list, but only
+ * when the category's preference is active. Reuses poisAlongRoute output (latlng
+ * present) — no extra fetch, no synthetic data; unnamed POIs get honest labels.
+ */
+function renderPoiMarkersForCategory(category, items, renderToken, container) {
+    if (!category?.marker || !isPoiPreferenceActive(category.preferenceKey)) {
+        return;
+    }
+    // Stale guard: a newer route render replaced this one (and cleared the layer).
+    if (container._onRouteToken !== renderToken) {
+        return;
+    }
+    const layer = getOnRoutePoiMarkerLayer();
+    if (!layer || !Array.isArray(items)) {
+        return;
+    }
+    const icon = createPoiMarkerIcon(category);
+    items.forEach((item) => {
+        const lat = item?.latlng?.lat;
+        const lon = item?.latlng?.lon;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+            return;
+        }
+        const label = (typeof item.name === 'string' && item.name.trim())
+            ? item.name.trim()
+            : category.marker.fallback;
+        const marker = L.marker([lat, lon], { icon, title: label });
+        marker.bindTooltip(label, { direction: 'top' });
+        marker.bindPopup(buildPoiPopupContent(label, item.distanceM));
+        layer.addLayer(marker);
+    });
+}
 
 let _onRouteTabsWired = false;
 
@@ -630,6 +731,12 @@ function renderOnRoutePanel(route) {
     }
     clearElementChildren(container);
 
+    // Wipe markers from the previous route so none linger (no phantom markers).
+    const markerLayer = getOnRoutePoiMarkerLayer();
+    if (markerLayer) {
+        markerLayer.clearLayers();
+    }
+
     const coordinates = getRouteCoordinates(route);
     if (!coordinates || coordinates.length < 2) {
         const empty = L.DomUtil.create('div', 'on-route-empty', container);
@@ -665,6 +772,9 @@ async function renderOnRoutePoiCategory(container, category, coordinates, render
         return;
     }
     loading.remove();
+
+    // Draw map markers for the same real items (only if the preference is active).
+    renderPoiMarkersForCategory(category, items, renderToken, container);
 
     if (!Array.isArray(items) || items.length === 0) {
         const empty = L.DomUtil.create('div', 'on-route-empty', section);

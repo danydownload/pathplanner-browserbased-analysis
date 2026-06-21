@@ -797,6 +797,8 @@ function parseApiEnvironmentPoint(point) {
  * @returns {Promise} resolves when the coarse grid finishes (telemetry only;
  *                    callers MUST NOT await it before running A*).
  */
+const SEED_CONSUME_DEADLINE_MS = 800;
+
 function prefetchRealEnvForSelection(startPoint, endPoint, patientCondition) {
     const grid = buildCoarseEnvGrid(startPoint, endPoint, 3);
     // Set the match radius up-front (also primes the seed before any point lands).
@@ -866,16 +868,39 @@ function prefetchRealEnvForSelection(startPoint, endPoint, patientCondition) {
         }
     }
 
-    return Promise.all(Array.from({ length: concurrency }, () => worker()))
+    const gridDone = Promise.all(Array.from({ length: concurrency }, () => worker()))
         .then(() => {
             console.log(
                 `[prefetchRealEnv] coarse pre-fetch done (/api/environment), ` +
                 `seed size=${EnvironmentalAStar.getRealEnvSeedSize()}`
             );
+            return 'grid';
         })
         .catch((err) => {
             console.warn('[prefetchRealEnv] coarse pre-fetch error (non-fatal):', err.message);
+            return 'grid-error';
         });
+
+    // Hardening: bound the seed-consumption with a deterministic ~800ms deadline so
+    // the RETURNED promise settles predictably even on a slow network. The deadline
+    // RESOLVES (never rejects) so it adds no dangling rejection. The grid workers
+    // keep streaming real points into the A* seed in the background (each keeps its
+    // own per-request timeout), and A* never awaits this promise — so routing is
+    // never blocked and seedRealEnvTiles behaviour is unchanged (no regression).
+    const deadline = new Promise((resolve) =>
+        setTimeout(() => resolve('deadline'), SEED_CONSUME_DEADLINE_MS)
+    );
+
+    return Promise.race([gridDone, deadline]).then((settledBy) => {
+        if (settledBy === 'deadline') {
+            console.log(
+                `[prefetchRealEnv] seed-consume checkpoint at ${SEED_CONSUME_DEADLINE_MS}ms ` +
+                `(grid still streaming in background), seed size=` +
+                `${EnvironmentalAStar.getRealEnvSeedSize()}`
+            );
+        }
+        return settledBy;
+    });
 }
 
 /**
