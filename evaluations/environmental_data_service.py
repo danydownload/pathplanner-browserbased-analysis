@@ -34,6 +34,7 @@ OPENTOPO_DATASETS = ('srtm30m', 'aster30m')
 OVERPASS_URLS = (
     'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 )
 OVERPASS_HEADERS = {'User-Agent': 'PathPlanner-Research/1.0 (environmental routing)'}
 
