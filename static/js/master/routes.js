@@ -6,9 +6,11 @@ import * as Scores from '../master/scores.js';
 import * as Environmental from '../services/environmental.js';
 import * as PointOfInterests from '../services/pointOfInterest.js';
 import * as RoutePlanner from '../services/routePlanner.js';
+import * as ParksAlongRoute from '../services/parksAlongRoute.js';
 
 const MAPBOX_ACCESS_TOKEN = globalThis.window?.MAPBOX_ACCESS_TOKEN || '';
 const ROUTE_COORDINATE_PRECISION = 5;
+const PARKS_ALONG_ROUTE_MAX_ITEMS = 8;
 const ROUTE_PREVIEW_DURATION_MS = 15000;
 const ROUTE_PREVIEW_FOLLOW_ZOOM = 17;
 const ROUTE_PREVIEW_CAMERA_THROTTLE_MS = 80;
@@ -543,6 +545,67 @@ function renderRouteSelectorInfo(routeInfo, route, index, isSelected) {
 
     const description = L.DomUtil.create('div', 'route-card-description', routeInfo);
     description.textContent = getUserFacingRouteDescription(route);
+
+    const parksSection = L.DomUtil.create('div', 'route-card-parks', routeInfo);
+    renderParksAlongRouteSection(parksSection, route);
+}
+
+/**
+ * Asynchronously list the real green areas the route passes by, in the route
+ * card. Only real OSM parks (from /api/parks); unnamed areas are shown honestly
+ * as "Area verde" and names are never invented.
+ */
+async function renderParksAlongRouteSection(container, route) {
+    if (!container) {
+        return;
+    }
+    clearElementChildren(container);
+
+    const title = L.DomUtil.create('div', 'route-card-parks-title', container);
+    title.textContent = 'Parchi e aree verdi sul percorso';
+    const loading = L.DomUtil.create('div', 'route-card-parks-loading', container);
+    loading.textContent = 'Cerco parchi reali lungo il percorso…';
+
+    const coordinates = getRouteCoordinates(route);
+    if (!coordinates || coordinates.length < 2) {
+        loading.className = 'route-card-parks-empty';
+        loading.textContent = 'Percorso non disponibile per la ricerca parchi.';
+        return;
+    }
+
+    let parks = [];
+    try {
+        parks = await ParksAlongRoute.getParksAlongRoute(coordinates);
+    } catch (error) {
+        console.warn('[routes] parks-along-route lookup failed:', error);
+    }
+
+    // The card may have been re-rendered or removed while awaiting the fetch.
+    if (!container.isConnected) {
+        return;
+    }
+    loading.remove();
+
+    if (!parks.length) {
+        const empty = L.DomUtil.create('div', 'route-card-parks-empty', container);
+        empty.textContent = 'Nessun parco rilevante lungo il percorso.';
+        return;
+    }
+
+    const shown = parks.slice(0, PARKS_ALONG_ROUTE_MAX_ITEMS);
+    shown.forEach((park) => {
+        const item = L.DomUtil.create('div', 'route-card-parks-item', container);
+        const name = park.name || 'Area verde';
+        item.appendChild(document.createTextNode(`Passa accanto a: ${name} `));
+        const distance = L.DomUtil.create('span', 'route-card-parks-distance', item);
+        distance.textContent = `~${park.distanceM} m`;
+    });
+
+    const remaining = parks.length - shown.length;
+    if (remaining > 0) {
+        const more = L.DomUtil.create('div', 'route-card-parks-more', container);
+        more.textContent = `+${remaining} altre aree verdi vicine`;
+    }
 }
 
 function parseCoordinateValue(value) {
