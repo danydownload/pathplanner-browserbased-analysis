@@ -670,88 +670,62 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
  */
 async function collectRealEnvironmentalData(routePoints, patientCondition) {
     console.log(`[collectRealEnvironmentalData] Collecting data for ${routePoints.length} points`);
-    
-    const environmentalData = [];
-    
-    // Calculate sampling frequency (max 20 points)
-    const numPoints = Math.min(20, routePoints.length);
-    const step = Math.max(1, Math.floor(routePoints.length / numPoints));
-    
-    // Collect data with retries
-    for (let i = 0; i < routePoints.length; i += step) {
-        if (environmentalData.length >= numPoints) break;
-        
-        const point = routePoints[i];
-        if (!point || !point.lat || (!point.lon && !point.lng)) continue;
-        
+
+    // Sample a limited number of points along the final route. Real APIs are
+    // called once here, NOT for every grid node during A*.
+    const maxPoints = Math.min(12, routePoints.length);
+    const step = Math.max(1, Math.floor(routePoints.length / maxPoints));
+    const sampledIndices = [];
+    for (let i = 0; i < routePoints.length && sampledIndices.length < maxPoints; i += step) {
+        sampledIndices.push(i);
+    }
+
+    async function fetchPoint(index) {
+        const point = routePoints[index];
+        if (!point || !point.lat || (!point.lon && !point.lng)) {
+            return null;
+        }
         const lat = point.lat;
         const lon = point.lon || point.lng;
-        
-        // Try multiple times to get real data
-        let envData = null;
-        let gotRealData = false;
-        
-        for (let retry = 0; retry < 3; retry++) {
-            try {
-                console.log(`[collectRealEnvironmentalData] Getting data for point ${i}, attempt ${retry + 1}`);
-                
-                // Set a flag to force real data
-                window.useRealTimeData = true;
-                
-                // Get environmental data with a timeout
-                envData = await Promise.race([
-                    Environmental.getEnvironmentalData(lat, lon, patientCondition),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("API timeout")), 5000))
-                ]);
-                
-                // Check if we got real data
-                if (envData && !envData.isDefault) {
-                    console.log(`[collectRealEnvironmentalData] Got REAL data for point ${i}`);
-                    gotRealData = true;
-                    break;
-                }
-                
-                console.log(`[collectRealEnvironmentalData] Got simulated data for point ${i}, retrying...`);
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-            } catch (error) {
-                console.warn(`[collectRealEnvironmentalData] Error for point ${i}, attempt ${retry + 1}:`, error.message);
-                await new Promise(resolve => setTimeout(resolve, 500));
+
+        try {
+            window.useRealTimeData = true;
+            const envData = await Promise.race([
+                Environmental.getEnvironmentalData(lat, lon, patientCondition),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('API timeout')), 2500))
+            ]);
+            if (envData && !envData.isDefault) {
+                envData.coordinate = { lat, lng: lon };
+                console.log(`[collectRealEnvironmentalData] Got REAL data for point ${index}`);
+                return envData;
             }
+        } catch (error) {
+            console.warn(`[collectRealEnvironmentalData] Error for point ${index}:`, error.message);
         }
-        
-        // If we got data (real or simulated), add it to the list
-        if (envData) {
-            // Add coordinate info for later reference
-            envData.coordinate = { lat, lng: lon };
-            environmentalData.push(envData);
-        } else {
-            // If all retries failed, add synthetic data
-            console.warn(`[collectRealEnvironmentalData] All attempts failed for point ${i}, adding synthetic data`);
-            const syntheticData = createSyntheticEnvData(point, patientCondition);
-            environmentalData.push(syntheticData);
+
+        // Fallback to synthetic data if real APIs failed or returned defaults.
+        const syntheticData = createSyntheticEnvData(point, patientCondition);
+        syntheticData.coordinate = { lat, lng: lon };
+        return syntheticData;
+    }
+
+    // Run API calls with limited concurrency so we don't overwhelm the services
+    // but still finish in a few seconds instead of the previous sequential loop.
+    const concurrency = 4;
+    const results = new Array(sampledIndices.length);
+    let nextIndex = 0;
+    async function worker() {
+        while (nextIndex < sampledIndices.length) {
+            const slot = nextIndex++;
+            results[slot] = await fetchPoint(sampledIndices[slot]);
         }
     }
-    
-    // If we couldn't get any environmental data, generate synthetic data
-    if (environmentalData.length === 0) {
-        console.warn(`[collectRealEnvironmentalData] No data collected, generating synthetic data`);
-        
-        for (let i = 0; i < routePoints.length; i += step) {
-            if (environmentalData.length >= numPoints) break;
-            
-            const point = routePoints[i];
-            if (!point || !point.lat || (!point.lon && !point.lng)) continue;
-            
-            const syntheticData = createSyntheticEnvData(point, patientCondition);
-            environmentalData.push(syntheticData);
-        }
-    }
-    
-    // Log data quality statistics
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+    const environmentalData = results.filter(Boolean);
     const dataStats = analyzeEnvironmentalData(environmentalData);
     console.log(`[collectRealEnvironmentalData] Collected ${environmentalData.length} data points, ${dataStats.realDataPercentage.toFixed(1)}% real data`);
-    
+
     return environmentalData;
 }
 

@@ -2070,6 +2070,20 @@ body.right-sidebar-open.directions-open .directions-panel {
     cursor: not-allowed;
 }
 
+.directions-route-preview--stop {
+    color: #7f1d1d;
+    background: #fee2e2;
+}
+
+.directions-route-preview--stop:hover,
+.directions-route-preview--stop:focus {
+    background: #fecaca;
+}
+
+.directions-route-preview--stop:disabled {
+    opacity: 0.4;
+}
+
 @media (max-width: 991.98px) {
     .route-actions {
         grid-template-columns: 1fr;

@@ -2178,6 +2178,29 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
         previewButton.setAttribute('aria-label', 'Preview selected route from start to arrival');
         previewButton.title = 'Preview selected route';
 
+        const stopPreviewButton = document.createElement('button');
+        stopPreviewButton.type = 'button';
+        stopPreviewButton.className = 'directions-route-preview directions-route-preview--stop';
+        stopPreviewButton.innerHTML = '<span class="route-preview-button-icon" aria-hidden="true"></span><span>Stop preview</span>';
+        stopPreviewButton.setAttribute('aria-label', 'Stop route preview');
+        stopPreviewButton.title = 'Stop preview';
+        stopPreviewButton.disabled = true;
+
+        const setPreviewControlsRunning = (running) => {
+            const selectedRoute = routes[getSelectedRouteIndexFromPanel(selectorContainer, routes, initialSelectedIndex)];
+            const canPreview = normalizeRoutePreviewPath(selectedRoute).length >= 2;
+            if (running) {
+                previewButton.disabled = true;
+                setRoutePreviewButtonState(previewButton, 'running');
+                stopPreviewButton.disabled = false;
+            } else {
+                previewButton.disabled = !canPreview;
+                previewButton.title = canPreview ? 'Preview selected route' : 'Select a route with geometry first';
+                resetRoutePreviewButton(previewButton);
+                stopPreviewButton.disabled = true;
+            }
+        };
+
         const updatePreviewButtonState = () => {
             const selectedRoute = routes[getSelectedRouteIndexFromPanel(selectorContainer, routes, initialSelectedIndex)];
             const canPreview = normalizeRoutePreviewPath(selectedRoute).length >= 2;
@@ -2198,7 +2221,7 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
 
             stopRoutePreview(map, { restoreView: false });
             window.RouteStepSimulator.stop();
-            setRoutePreviewButtonState(previewButton, 'running');
+            setPreviewControlsRunning(true);
 
             const transportMode = document.getElementById('transportMode')?.value || 'walking';
             const speedByMode = {
@@ -2206,7 +2229,7 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
                 cycling: 4,
                 driving: 12
             };
-            window.RouteStepSimulator.start({
+            const started = window.RouteStepSimulator.start({
                 map,
                 route: selectedRoute,
                 directionsListElement: document.getElementById('directionsList'),
@@ -2218,11 +2241,23 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
                 },
                 onStepLeave: (index, el) => el.classList.remove('directions-step--active'),
                 onDone: () => {
-                    resetRoutePreviewButton(previewButton);
+                    setPreviewControlsRunning(false);
                 }
             });
+
+            if (!started) {
+                setPreviewControlsRunning(false);
+            }
         });
+
+        stopPreviewButton.addEventListener('click', () => {
+            window.RouteStepSimulator.stop();
+            stopRoutePreview(map);
+            setPreviewControlsRunning(false);
+        });
+
         selectorContainer.appendChild(previewButton);
+        selectorContainer.appendChild(stopPreviewButton);
 
         if (routes.length === 2) {
             const directRoute = routes.find(r => r.isDirectRoute);

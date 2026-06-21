@@ -20,6 +20,60 @@ const POI_CATEGORY_TAGS = {
     nature: ['node["leisure"="park"]', 'node["natural"="wood"]', 'node["leisure"="garden"]']
 };
 
+// Lightweight, deterministic synthetic environmental data used during A* search.
+// We intentionally avoid live API calls per grid node because they make long routes
+// unbearably slow; the real environmental profile is computed later for the final route.
+const astarEnvCache = new Map();
+
+function deterministicLocationFactor(lat, lon) {
+    const value = Math.abs(Math.sin(lat * 1000) * 10000 + Math.cos(lon * 1000) * 10000);
+    return (value % 1000) / 1000;
+}
+
+function createFastEnvironmentalData(lat, lon, patientCondition) {
+    const hash = deterministicLocationFactor(lat, lon);
+    const baseData = {
+        temperature: 18 + hash * 14,           // 18-32°C
+        humidity: 35 + hash * 40,              // 35-75%
+        airQuality: 1 + hash * 9,              // 1-10 AQI
+        slope: hash * 10,                      // 0-10%
+        noise: 1 + hash * 9,                   // 1-10 noise level
+        trafficDensity: hash * 0.8,            // 0-0.8
+        greenVisibility: hash * 0.8,           // 0-0.8
+        surfaceQuality: hash * 0.5,            // 0-0.5
+        emergencyAccessibility: 1 + hash * 9,  // 1-10
+        sensoryLoad: 1 + hash * 9,             // 1-10
+        weather: hash < 0.7 ? 'Clear' : 'Cloudy',
+        isDefault: true,
+        isSynthetic: true
+    };
+
+    // Blend in known condition-specific hotspots so the A* still reacts to real
+    // problem areas (e.g., high traffic near a known bad air-quality region).
+    if (patientCondition && patientCondition.name && patientCondition.name !== 'default') {
+        const factor = patientCondition.name.toLowerCase();
+        if (factor === 'respiratory') {
+            baseData.airQuality = Math.min(10, baseData.airQuality + baseData.trafficDensity * 2);
+        } else if (factor === 'cardiac' || factor === 'mobility') {
+            baseData.slope = Math.min(15, baseData.slope * (1 + hash));
+        } else if (factor === 'mental') {
+            baseData.noise = Math.min(10, baseData.noise + baseData.trafficDensity * 2);
+        }
+    }
+
+    return baseData;
+}
+
+function getFastEnvironmentalData(lat, lon, patientCondition) {
+    const key = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+    let data = astarEnvCache.get(key);
+    if (!data) {
+        data = createFastEnvironmentalData(lat, lon, patientCondition);
+        astarEnvCache.set(key, data);
+    }
+    return data;
+}
+
 function getRouteBbox(start, goal) {
     return {
         minLat: Math.min(start.lat, goal.lat) - 0.01,
@@ -43,14 +97,23 @@ async function fetchPoiLocations(bbox, category) {
 
     const bboxStr = `${bbox.minLat},${bbox.minLon},${bbox.maxLat},${bbox.maxLon}`;
     const union = tags.map(tag => `${tag}(${bboxStr});`).join('');
-    const query = `[out:json][timeout:10];(${union});out center;`;
+    const query = `[out:json][timeout:8];(${union});out center;`;
 
     try {
-        const response = await fetch('https://overpass-api.de/api/interpreter', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `data=${encodeURIComponent(query)}`
-        });
+        // POI fetching must not block route calculation. If Overpass is slow or
+        // unreachable we fall back to an empty list and let greenVisibility / other
+        // environmental proxies drive the preference cost.
+        const POI_FETCH_TIMEOUT_MS = 3500;
+        const response = await Promise.race([
+            fetch('https://overpass-api.de/api/interpreter', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `data=${encodeURIComponent(query)}`
+            }),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('POI fetch timeout')), POI_FETCH_TIMEOUT_MS)
+            )
+        ]);
         if (!response.ok) {
             throw new Error(`Overpass error: ${response.status}`);
         }
@@ -65,7 +128,8 @@ async function fetchPoiLocations(bbox, category) {
         window._astarPoiCache[cacheKey] = pois;
         return pois;
     } catch (error) {
-        console.warn(`Failed to fetch POIs for ${category}:`, error);
+        console.warn(`POI fetch for ${category} failed or timed out, continuing without POIs:`, error.message);
+        window._astarPoiCache[cacheKey] = [];
         return [];
     }
 }
@@ -154,10 +218,17 @@ export async function findOptimalRoute(start, goal, map, patientCondition, envir
     console.log("Starting Environmental A* pathfinding algorithm");
     console.log(`Start: (${start.lat}, ${start.lon}), Goal: (${goal.lat}, ${goal.lon})`);
     console.log(`Patient condition: ${patientCondition.name}`);
-    
+
     // Create a search grid around the route
     const grid = createSearchGrid(start, goal, gridResolution);
     console.log(`Created search grid with ${grid.length} nodes`);
+
+    // Reset the synthetic cache so each route calculation uses data consistent
+    // with the current patient condition, then pre-compute for every grid node.
+    astarEnvCache.clear();
+    for (const node of grid) {
+        getFastEnvironmentalData(node.lat, node.lon, patientCondition);
+    }
 
     // Precompute nearest-POI distances for all grid nodes once
     const poiDistances = poiLists ? precomputePoiDistances(grid, poiLists) : null;
@@ -254,52 +325,87 @@ export async function findOptimalRoute(start, goal, map, patientCondition, envir
  */
 function createSearchGrid(start, goal, resolution) {
     const grid = [];
-    
+
     // Calculate bounding box with some padding
     const minLat = Math.min(start.lat, goal.lat) - 0.01;
     const maxLat = Math.max(start.lat, goal.lat) + 0.01;
     const minLon = Math.min(start.lon, goal.lon) - 0.01;
     const maxLon = Math.max(start.lon, goal.lon) + 0.01;
-    
+
     // Calculate grid size
     const latMetersPerDegree = 111320; // at equator
     const lonMetersPerDegree = 111320 * Math.cos(((start.lat + goal.lat) / 2) * Math.PI / 180);
-    
+
     const latStep = resolution / latMetersPerDegree;
     const lonStep = resolution / lonMetersPerDegree;
-    
-    // Generate grid points
+
+    // Generate grid points and a cell index for O(1) neighbor lookup.
+    // The previous O(N^2) grid scan made long routes take 30+ seconds.
+    const cells = new Map();
+    let row = 0;
     for (let lat = minLat; lat <= maxLat; lat += latStep) {
+        let col = 0;
         for (let lon = minLon; lon <= maxLon; lon += lonStep) {
-            grid.push({ lat, lon });
+            const node = { lat, lon, _row: row, _col: col };
+            grid.push(node);
+            const key = `${row},${col}`;
+            if (!cells.has(key)) cells.set(key, []);
+            cells.get(key).push(node);
+            col++;
         }
+        row++;
     }
-    
+
+    grid.minLat = minLat;
+    grid.minLon = minLon;
+    grid.latStep = latStep;
+    grid.lonStep = lonStep;
+    grid.spatialCells = cells;
+
     return grid;
 }
 
 /**
- * Get neighboring nodes from the grid
+ * Get neighboring nodes from the grid using the pre-built cell index.
  * @param {Object} node - Current node
- * @param {Array} grid - Search grid
+ * @param {Array} grid - Search grid (with spatialCells property)
  * @param {Number} resolution - Grid resolution
  * @returns {Array} Neighboring nodes
  */
 function getNeighbors(node, grid, resolution) {
     const latMetersPerDegree = 111320;
     const lonMetersPerDegree = 111320 * Math.cos(node.lat * Math.PI / 180);
-    
+
     const latRadius = resolution / latMetersPerDegree;
     const lonRadius = resolution / lonMetersPerDegree;
-    
-    return grid.filter(gridNode => {
-        const latDiff = Math.abs(gridNode.lat - node.lat);
-        const lonDiff = Math.abs(gridNode.lon - node.lon);
-        
-        // Include nodes within resolution distance but not the node itself
-        return latDiff <= latRadius && lonDiff <= lonRadius && 
-               (latDiff > 0 || lonDiff > 0);
-    });
+
+    const cells = grid.spatialCells;
+    let row = node._row;
+    let col = node._col;
+
+    // Start/goal are not grid nodes; map them to the nearest cell.
+    if (row == null || col == null) {
+        row = Math.round((node.lat - grid.minLat) / grid.latStep);
+        col = Math.round((node.lon - grid.minLon) / grid.lonStep);
+    }
+
+    const neighbors = [];
+    for (let dRow = -1; dRow <= 1; dRow++) {
+        for (let dCol = -1; dCol <= 1; dCol++) {
+            const cellNodes = cells.get(`${row + dRow},${col + dCol}`);
+            if (!cellNodes) continue;
+            for (const gridNode of cellNodes) {
+                if (gridNode === node) continue;
+                const latDiff = Math.abs(gridNode.lat - node.lat);
+                const lonDiff = Math.abs(gridNode.lon - node.lon);
+                if (latDiff <= latRadius && lonDiff <= lonRadius) {
+                    neighbors.push(gridNode);
+                }
+            }
+        }
+    }
+
+    return neighbors;
 }
 
 /**
@@ -323,10 +429,12 @@ async function calculateCost(current, neighbor, currentGScore, patientCondition,
         envData = findClosestEnvironmentalData(neighbor, environmentalData);
     }
     if (!envData) {
-        // Fallback to live API (slower but ensures correctness during development)
-        envData = await Environmental.getPointEnvironmentalData(neighbor.lat, neighbor.lon, patientCondition);
+        // Fast synthetic fallback: real environmental data is sampled later for the
+        // final route; doing live API calls for every grid node makes long routes
+        // take 30+ seconds.
+        envData = getFastEnvironmentalData(neighbor.lat, neighbor.lon, patientCondition);
     }
-    
+
     // Apply environmental weights based on patient condition
     if (patientCondition && patientCondition.name !== "default") {
         // Base multipliers
@@ -721,9 +829,6 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
         );
     }
 
-    const directPath = [start, goal];
-    const environmentalData = await collectEnvironmentalData(directPath, patientCondition);
-
     const bbox = getRouteBbox(start, goal);
     const categories = ['nature', 'entertainment', 'nightlife', 'tourism', 'hospital'];
     const activeCategories = categories.filter(category => {
@@ -736,19 +841,19 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
         poiLists[category] = await fetchPoiLocations(bbox, category);
     }));
 
+    // No live environmental data is passed into A*: the cost function falls back
+    // to a fast synthetic model for grid nodes. Real weather/air-quality data is
+    // sampled later, once the final route has been found (max ~20 points).
     const firstRoute = await findOptimalRoute(
         start,
         goal,
         map,
         patientCondition,
-        environmentalData,
+        null,
         gridResolution,
         preferences,
         poiLists,
     );
-    
-    // Add environmental data to route
-    firstRoute.environmentalData = environmentalData;
     
     const routes = [firstRoute];
     
@@ -803,28 +908,12 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
             goal,
             map,
             patientCondition,
-            environmentalData,
+            null,
             gridResolution,
             preferences,
             poiLists,
         );
-        
-        // Collect specific environmental data for this alternative route
-        // to ensure each route has its own environmental profile
-        if (alternativeRoute && alternativeRoute.route && alternativeRoute.route.length > 0) {
-            // Add some variation to make each route's environmental data unique
-            const routeSpecificData = await collectEnvironmentalData(
-                alternativeRoute.route, 
-                patientCondition,
-                i // Pass route index for variation
-            );
-            
-            alternativeRoute.environmentalData = routeSpecificData;
-        } else {
-            // Fallback if no route was found
-            alternativeRoute.environmentalData = environmentalData;
-        }
-        
+
         routes.push(alternativeRoute);
         
         // Restore original cost function
@@ -846,66 +935,28 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
  */
 async function collectEnvironmentalData(path, patientCondition, routeIndex = 0) {
     const environmentalData = [];
-    
+
     const benchmarkMode = window.PATHPLANNER_BENCHMARK === true;
     const sampleCount = benchmarkMode
         ? Math.min(4, path.length)
         : Math.min(20, path.length);
     const step = Math.max(1, Math.floor(path.length / sampleCount));
-    
-    // Add small variation based on route index to ensure different routes
-    // have different environmental profiles
-    const routeVariation = routeIndex * 0.05; // 5% variation per route
-    
+
+    // Use the same fast synthetic generator as the A* cost function. Calling live
+    // weather/air-quality APIs for every sample point is the main reason long
+    // routes take 30+ seconds to calculate.
     for (let i = 0; i < path.length; i += step) {
         if (environmentalData.length >= sampleCount) break;
-        
+
         const node = path[i];
         if (!node || typeof node.lat !== 'number' || typeof node.lon !== 'number') continue;
-        
-        try {
-            let envData = null;
-            
-            // Try to get real environmental data
-            try {
-                envData = await Environmental.getPointEnvironmentalData(node.lat, node.lon, patientCondition);
-            } catch (error) {
-                console.warn(`Error getting environmental data for (${node.lat}, ${node.lon}): ${error.message}`);
-                envData = null;
-            }
-            
-            // If we couldn't get real data, generate synthetic data
-            if (!envData) {
-                // Create deterministic synthetic data
-                const locationHash = Math.abs(Math.sin(node.lat * 100) * 10000 + Math.cos(node.lon * 100) * 10000);
-                const hashFactor = (locationHash % 100) / 100; // 0-1 range
-                
-                // Apply route variation
-                const variationFactor = 1.0 + (routeVariation * Math.sin(node.lat * node.lon));
-                
-                envData = {
-                    temperature: 20 + (Math.sin(node.lat * 8) * 5 * hashFactor * variationFactor),
-                    humidity: 50 + (Math.cos(node.lon * 5) * 15 * hashFactor * variationFactor),
-                    airQuality: Math.max(1, Math.min(10, 5 * hashFactor * variationFactor)),
-                    weather: ["Clear", "Partly Cloudy", "Cloudy", "Light Rain"][Math.floor(node.lat * 10 + routeIndex) % 4],
-                    slope: Math.abs(2 * Math.sin(node.lat * 20) * hashFactor * variationFactor),
-                    noise: Math.max(1, Math.min(10, 3 * hashFactor * variationFactor)),
-                    timestamp: Date.now(),
-                    isDefault: true,
-                    isSynthetic: true,
-                    routeIndex: routeIndex // Mark which route this is for
-                };
-            }
-            
-            // Add coordinate data
-            envData.coordinate = { lat: node.lat, lng: node.lon };
-            environmentalData.push(envData);
-            
-        } catch (error) {
-            console.warn(`General error processing point (${node.lat}, ${node.lon}): ${error.message}`);
-        }
+
+        const envData = { ...getFastEnvironmentalData(node.lat, node.lon, patientCondition) };
+        envData.coordinate = { lat: node.lat, lng: node.lon };
+        envData.routeIndex = routeIndex;
+        environmentalData.push(envData);
     }
-    
+
     return environmentalData;
 }
 

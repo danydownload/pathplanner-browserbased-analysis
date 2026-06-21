@@ -15,7 +15,6 @@
   const ROUTE_PREVIEW_FOLLOW_ZOOM = 17;
   const ROUTE_PREVIEW_CAMERA_THROTTLE_MS = 80;
   const ROUTE_PREVIEW_MIN_TOTAL_MS = 8000;
-  const ROUTE_PREVIEW_MAX_TOTAL_MS = 45000;
   const MIN_STEP_DURATION_MS = 1500;
   const MAX_STEP_DURATION_MS = 10000;
 
@@ -406,12 +405,9 @@
 
       const location = parseStepLocation(step);
       if (location) {
-        const searchWindow = 6;
-        const searchStart = Math.max(lastIndex, locIndex >= 0 ? locIndex - searchWindow : lastIndex);
-        const searchEnd = locIndex >= 0
-          ? Math.min(path.length - 1, locIndex + searchWindow)
-          : path.length - 1;
-        const nearestIndex = findNearestPathIndex(path, location, searchStart, searchEnd);
+        // Search forward from the previous split so turns are snapped to their
+        // exact position on the route geometry, not to a coarse distance estimate.
+        const nearestIndex = findNearestPathIndex(path, location, lastIndex, path.length - 1);
         if (nearestIndex >= 0) {
           locIndex = nearestIndex;
         }
@@ -576,10 +572,7 @@
     } else {
       totalDurationMs = stepDurationMs * segments.length;
     }
-    totalDurationMs = Math.max(
-      ROUTE_PREVIEW_MIN_TOTAL_MS,
-      Math.min(ROUTE_PREVIEW_MAX_TOTAL_MS, totalDurationMs)
-    );
+    totalDurationMs = Math.max(ROUTE_PREVIEW_MIN_TOTAL_MS, totalDurationMs);
 
     const items = directionsListElement
       ? Array.from(directionsListElement.querySelectorAll('.directions-step'))
