@@ -311,7 +311,14 @@ export async function generateOptimizedRoutes(
             }
         }
 
-        if (patientCondition.isPatientMode && patientCondition.name !== 'default') {
+        // Legacy mode (opt-in, default OFF): run the candidate-route + scoring
+        // pipeline even without a pathology, mirroring the original behaviour.
+        // The `default` waypoint patterns ("Alternative Route A/B") already exist;
+        // this only relaxes the guard. Without legacy the behaviour is unchanged.
+        const allowWaypointsWithoutPathology = options.legacy === true;
+        const hasPathology =
+            patientCondition.isPatientMode && patientCondition.name !== 'default';
+        if (hasPathology || allowWaypointsWithoutPathology) {
             return await generateRoutesFromWaypointPatterns(
                 startPoint,
                 endPoint,

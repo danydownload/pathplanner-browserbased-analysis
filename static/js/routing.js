@@ -296,10 +296,27 @@ document.addEventListener("DOMContentLoaded", function() {
         `;
         
         optionsContainer.appendChild(astarCheckboxDiv);
-        
+
         // Initialize tooltip
         $(function () {
             $('[data-toggle="tooltip"]').tooltip();
+        });
+    }
+
+    // Legacy mode toggle: persist the opt-in choice across reloads (default OFF).
+    const legacyToggle = document.getElementById('legacyMode');
+    if (legacyToggle) {
+        try {
+            legacyToggle.checked = localStorage.getItem('pp_legacyMode') === 'true';
+        } catch (e) {
+            legacyToggle.checked = false;
+        }
+        legacyToggle.addEventListener('change', function () {
+            try {
+                localStorage.setItem('pp_legacyMode', legacyToggle.checked ? 'true' : 'false');
+            } catch (e) {
+                /* localStorage unavailable: in-memory state still applies for this session */
+            }
         });
     }
 
@@ -332,7 +349,13 @@ document.addEventListener("DOMContentLoaded", function() {
         const isPatientMode =
             window.currentPatientCondition?.isPatientMode &&
             window.currentPatientCondition?.name !== 'default';
-        const useOptimizedRouting = useAStar && isPatientMode;
+        // Legacy mode (default OFF): restores the original gate `useAStar || isPatientMode`,
+        // so the environmental optimisation runs even without a pathology selected.
+        // OFF keeps the current behaviour bit-identical (`useAStar && isPatientMode`).
+        const legacy = document.getElementById('legacyMode')?.checked === true;
+        const useOptimizedRouting = legacy
+            ? (useAStar || isPatientMode)
+            : (useAStar && isPatientMode);
         
         console.log("[routing.js] window.currentPatientCondition BEFORE A* or Route call:", JSON.stringify(window.currentPatientCondition, null, 2));
         console.log("[routing.js] window.currentPreferences BEFORE A* or Route call:", JSON.stringify(window.currentPreferences, null, 2));
@@ -350,7 +373,7 @@ document.addEventListener("DOMContentLoaded", function() {
                     window.currentPatientCondition,
                     transportMode,
                     isPatientMode ? 3 : 2,
-                    { preferAStar: useAStar }
+                    { preferAStar: useAStar, legacy }
                 );
                 
                 // Convert to format expected by routes.js
