@@ -7,6 +7,13 @@ import * as Environmental from '../services/environmental.js';
 import * as PointOfInterests from '../services/pointOfInterest.js';
 import * as RoutePlanner from '../services/routePlanner.js';
 import * as PoisAlongRoute from '../services/poisAlongRoute.js';
+import {
+    beginEnvQualityRun,
+    closeOverlayAtFirstPolyline,
+    resolveEnvQualityBadge,
+    envQualityBadgeFromRoute,
+    clearEnvQualityBadge
+} from '../utils/envQualityBadge.js';
 
 const MAPBOX_ACCESS_TOKEN = globalThis.window?.MAPBOX_ACCESS_TOKEN || '';
 const ROUTE_COORDINATE_PRECISION = 5;
@@ -2351,6 +2358,16 @@ function clearRouteSelectorContainer() {
     if (container) {
         container.innerHTML = '';
     }
+    // Preview/stop now live in the Indicazioni pane, not the selector — wipe them
+    // too on every cleanup path so no orphan buttons linger when routes drop to 0.
+    const previewControls = getDirectionsPreviewControlsContainer();
+    if (previewControls) {
+        previewControls.innerHTML = '';
+    }
+    // PP-LOAD-PERF: the env-quality badge is a fixed document.body node, so it
+    // must be explicitly removed on route-clear to avoid orphaning. No-op while a
+    // run is active (the badge belongs to the in-flight route run).
+    clearEnvQualityBadge();
 }
 
 /**
@@ -2835,6 +2852,11 @@ async function route(
         console.warn("[route] Environmental.startRouteCalculation is not defined!");
     }
 
+    // PP-LOAD-PERF: open a new env-quality run (bumps the anti-stale token and
+    // shows the in-progress badge). handleOnRouteFound + showBestRoute below
+    // capture this token from the closure to guard against stale route switches.
+    const runToken = beginEnvQualityRun();
+
     let startLat, startLon, endLat, endLon; // Declare here for broader scope if needed by fallback in main catch
 
     // Ensure allRoutes is initialized here and accessible to handleOnRouteFound
@@ -2865,6 +2887,12 @@ async function route(
                 createdRoute.coordinates = routePath.coordinates;
             }
 
+            // PP-LOAD-PERF: the polyline is now on the map (Leaflet drew it on
+            // 'routesfound'); close the blocking overlay so the user can see and
+            // interact with the route immediately. Env quality keeps computing
+            // in the background and resolves into the non-blocking badge.
+            closeOverlayAtFirstPolyline(routeControl);
+
             // Add to allRoutes immediately
             const routeExists = allRoutes.some(r => r.routingControl === createdRoute.routingControl);
             if (!routeExists) {
@@ -2885,10 +2913,21 @@ async function route(
                 window.dataCache = {};
             }
 
+            // PP-LOAD-PERF: kick off POI fetch in the BACKGROUND, in parallel
+            // with env sampling, so it never gates overlay close / route
+            // interactivity. Awaited only at scoring time below.
+            const poiPromise = PointOfInterests.getRoutePOIs(routePath).catch((poiError) => {
+                console.error(`[handleOnRouteFound] Background POI fetch failed for ${createdRoute.routeName}:`, poiError);
+                return createMinimalPOIData();
+            });
+
             // Implement improved retry logic for environmental data
             let environmentDataList = [];
             let retryCount = 0;
-            const maxRetries = 5; // Increased retries
+            // PP-LOAD-PERF: trimmed outer retries (was 5) — combined with the
+            // inner env-sampler retry trim + 4x concurrency this bounds the
+            // worst-case env latency to a few seconds instead of ~43s.
+            const maxRetries = 2;
             let hasEnoughRealData = false;
 
             while (retryCount < maxRetries && !hasEnoughRealData) {
@@ -2971,14 +3010,18 @@ async function route(
             });
             console.log(`[handleOnRouteFound] Stored ${createdRoute.environmentDataList.length} enriched environmental data points for ${createdRoute.routeName}`);
 
-            // Fetch POI data
-            console.log(`[handleOnRouteFound] Fetching POI data for ${createdRoute.routeName}`);
+            // Await the POI data that was fetched in the background (in parallel
+            // with env sampling above) so it never serialised behind env.
+            console.log(`[handleOnRouteFound] Awaiting background POI data for ${createdRoute.routeName}`);
             let poiData;
             try {
-                poiData = await PointOfInterests.getRoutePOIs(routePath);
+                poiData = await poiPromise;
             } catch (poiError) {
                 console.error(`[handleOnRouteFound] Error fetching POI data for ${createdRoute.routeName}:`, poiError);
                 // Use minimal POI data if API call fails
+                poiData = createMinimalPOIData();
+            }
+            if (!poiData) {
                 poiData = createMinimalPOIData();
             }
             createdRoute.poiCounts = poiData;
@@ -3198,7 +3241,7 @@ async function route(
                     directRouteControl.addTo(map);
                     currentRouting.routingControls.push(directRouteControl);
 
-                    directRouteControl.on('routesfound', (e) => {
+                    directRouteControl.on('routesfound', async (e) => {
                         console.log("[route-async-block] Direct route found.");
                         const createdRoute = {
                             routeName: "Direct Route",
@@ -3206,7 +3249,15 @@ async function route(
                             ...GenericUtils.createRoute(waypointInputs.start, waypointInputs.end),
                             routingControl: directRouteControl
                         };
-                        handleOnRouteFound(e, directRouteControl, createdRoute, waypoints); // Pass 'waypoints'
+                        // PP-LOAD-PERF: await scoring so the promise (and thus
+                        // showBestRoute / badge resolve) does not race ahead of
+                        // env+POI+scoring. The overlay still closes early because
+                        // closeOverlayAtFirstPolyline() runs at handleOnRouteFound entry.
+                        try {
+                            await handleOnRouteFound(e, directRouteControl, createdRoute, waypoints); // Pass 'waypoints'
+                        } catch (err) {
+                            console.error('[route-async-block] Direct route handleOnRouteFound failed:', err);
+                        }
                         resolveRoutePromise(true);
                     });
                     directRouteControl.on('routingerror', (e) => { console.error("Direct route error:", e); resolveRoutePromise(false); });
@@ -3235,7 +3286,7 @@ async function route(
                         altRouteControl.addTo(map);
                         currentRouting.routingControls.push(altRouteControl);
 
-                        altRouteControl.on('routesfound', (e) => {
+                        altRouteControl.on('routesfound', async (e) => {
                             console.log(`[route-async-block] Alt route ${pattern.name} found.`);
                             const createdRoute = {
                                 routeName: pattern.name,
@@ -3243,7 +3294,12 @@ async function route(
                                 ...GenericUtils.createRoute(waypointInputs.start, waypointInputs.end),
                                 routingControl: altRouteControl
                             };
-                            handleOnRouteFound(e, altRouteControl, createdRoute, altRouteWaypointsForControl); // Pass 'altRouteWaypointsForControl'
+                            // PP-LOAD-PERF: await scoring before resolving (see direct-route note above).
+                            try {
+                                await handleOnRouteFound(e, altRouteControl, createdRoute, altRouteWaypointsForControl); // Pass 'altRouteWaypointsForControl'
+                            } catch (err) {
+                                console.error(`[route-async-block] Alt route ${pattern.name} handleOnRouteFound failed:`, err);
+                            }
                             resolveRoutePromise(true);
                         });
                         altRouteControl.on('routingerror', (e) => { console.error(`Alt route ${pattern.name} error:`, e); resolveRoutePromise(false); });
@@ -3344,17 +3400,24 @@ async function route(
                 // Hide loading screen immediately after routes are displayed
                 LoadingScreen.hide(document);
                 console.log("[route] LoadingScreen hidden after setupRouteControlPanel");
+
+                // PP-LOAD-PERF: env quality is now fully computed — resolve the
+                // non-blocking badge in place (anti-stale guarded by runToken).
+                const { status, text } = envQualityBadgeFromRoute(currentRoute);
+                resolveEnvQualityBadge(runToken, status, text);
             }
 
         } catch (errorInAsyncBlock) {
             console.error("[route] Error during async route generation/processing block:", errorInAsyncBlock);
             // Hide loading screen on error
             LoadingScreen.hide(document);
+            resolveEnvQualityBadge(runToken, 'unavailable', 'Qualità ambientale non disponibile');
             displayFallbackRoute(map, currentRouting, waypointInputs, additionalInfos, startLat, startLon, endLat, endLon);
         }
 
     } catch (errorInMainRouteFunction) { // Catches errors from the main setup, or if rethrown from async block
         console.error("[route] Error in main function execution (outside async block):", errorInMainRouteFunction);
+        resolveEnvQualityBadge(runToken, 'unavailable', 'Qualità ambientale non disponibile');
         displayFallbackRoute(map, currentRouting, waypointInputs, additionalInfos, startLat, startLon, endLat, endLon);
     } finally { // TOP-LEVEL FINALLY BLOCK
         LoadingScreen.hide(document); // Always hide loading screen
@@ -3441,6 +3504,8 @@ async function routeWithPrecalculatedRoutes(
     document,
     csvData
 ) {
+    // PP-LOAD-PERF: open a new env-quality run (anti-stale token + in-progress badge).
+    const runToken = beginEnvQualityRun();
     try {
         console.log("[routeWithPrecalculatedRoutes] Processing pre-calculated routes. Condition:", currentPatientCondition ? currentPatientCondition.name : 'N/A');
 
@@ -3547,6 +3612,9 @@ async function routeWithPrecalculatedRoutes(
                 length: route.length || 1000,
                 shortestLength: route.shortestLength || route.length || 1000,
                 environmentDataList: environmentDataList, // Add the environmental data
+                // PP-LOAD-PERF: carry the real-data percentage from the A* sampler
+                // so the env-quality badge can honestly distinguish real vs estimate.
+                realDataPercentage: Number.isFinite(route.realDataPercentage) ? route.realDataPercentage : 0,
                 isBest: i === 0, // Explicitly mark first route as best
                 removedFromMap: false // All routes will be on the map, styled by setupRouteControlPanel
             };
@@ -3606,12 +3674,21 @@ async function routeWithPrecalculatedRoutes(
 	        // Set up route control panel
 	        setupRouteControlPanel(map, allRoutes, currentRouting, currentPatientCondition, currentPreferences, csvData);
 
+        // PP-LOAD-PERF: polylines are on the map — close the overlay and resolve
+        // the env-quality badge honestly. A* env here is synthetic/seed-based, so
+        // the badge labels it 'stima' unless real-data sampling actually succeeded.
+        closeOverlayAtFirstPolyline(null);
+        const bestRoute = allRoutes.find(r => r.isBest) || allRoutes[0];
+        const { status, text } = envQualityBadgeFromRoute(bestRoute);
+        resolveEnvQualityBadge(runToken, status, text);
+
         toastr.success(`Generated ${allRoutes.length} routes using A* algorithm for ${currentPatientCondition.name} condition`);
         if (typeof window.updateDownloadButtonText === 'function') window.updateDownloadButtonText();
         return true;
     } catch (error) {
         console.error("[routeWithPrecalculatedRoutes] Error processing pre-calculated routes:", error);
         toastr.error("Error processing routes");
+        resolveEnvQualityBadge(runToken, 'unavailable', 'Qualità ambientale non disponibile');
         return false;
     } finally {
         if (Environmental.finalizeRouteCalculation) Environmental.finalizeRouteCalculation();

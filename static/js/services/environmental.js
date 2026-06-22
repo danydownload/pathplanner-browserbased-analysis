@@ -590,7 +590,9 @@ export async function getRouteEnvironmentalData(route, patientCondition, forceRe
         let successfulRequests = 0;
         let totalRequests = 0;
         let apiRetries = 0;
-        const maxApiRetries = benchmarkMode ? 1 : 3;
+        // PP-LOAD-PERF: trimmed nested retries (was 3) so worst-case env sampling
+        // latency stays bounded; 1 retry = up to 2 sampling passes total.
+        const maxApiRetries = benchmarkMode ? 1 : 1;
 
         while (apiRetries <= maxApiRetries) {
             if (apiRetries > 0) {
@@ -615,10 +617,13 @@ export async function getRouteEnvironmentalData(route, patientCondition, forceRe
                 sampleCoords.push(coordinate);
             }
 
+            // PP-LOAD-PERF: raise default sampling concurrency 1 -> 4 so the
+            // post-route env sampling no longer runs strictly serial (was the
+            // main contributor to the ~43s blocking overlay).
             const envConcurrency =
                 benchmarkMode && (window.BENCHMARK_ENV_CONCURRENCY || 0) > 1
                     ? window.BENCHMARK_ENV_CONCURRENCY
-                    : 1;
+                    : 4;
 
             if (envConcurrency > 1 && sampleCoords.length > 0) {
                 const fetched = await mapWithConcurrency(
