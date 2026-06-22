@@ -39,6 +39,7 @@ const MAPBOX_DIRECTIONS_ROUTING_OPTIONS = Object.freeze({
     alternatives: true,
     steps: true
 });
+const ON_ROUTE_POI_FETCH_TIMEOUT_MS = 35000;
 const MAPBOX_DIRECTIONS_REQUEST_PARAMETERS = Object.freeze({
     banner_instructions: true,
     voice_instructions: true,
@@ -570,8 +571,14 @@ const ON_ROUTE_POI_CATEGORIES = [
         title: 'Parchi e aree verdi',
         loadingLabel: 'Cerco parchi reali lungo il percorso…',
         emptyLabel: 'Nessun parco lungo il percorso.',
+        unavailableLabel: 'Dati reali su parchi e aree verdi non disponibili ora: non posso verificare questo punto senza rischiare un falso negativo.',
         // Real OSM parks within POI_PROXIMITY_THRESHOLD_M of the route, ordered.
-        fetchItems: (routeCoordinates) => PoisAlongRoute.getPoisAlongRoute('parks', routeCoordinates),
+        fetchItems: (routeCoordinates) => PoisAlongRoute.getPoisAlongRouteResult(
+            'parks',
+            routeCoordinates,
+            undefined,
+            { timeoutMs: ON_ROUTE_POI_FETCH_TIMEOUT_MS }
+        ),
         // Unnamed green areas are labelled honestly; names are never invented.
         formatItem: (park) => ({
             text: `Passa accanto a: ${park.name || 'Area verde'} `,
@@ -586,8 +593,14 @@ const ON_ROUTE_POI_CATEGORIES = [
         title: 'Ospedali',
         loadingLabel: 'Cerco ospedali reali lungo il percorso…',
         emptyLabel: 'Nessun ospedale lungo il percorso.',
+        unavailableLabel: 'Dati reali sugli ospedali non disponibili ora: non posso verificare questo punto senza rischiare un falso negativo.',
         // Real OSM hospitals within POI_PROXIMITY_THRESHOLD_M of the route, ordered.
-        fetchItems: (routeCoordinates) => PoisAlongRoute.getPoisAlongRoute('hospitals', routeCoordinates),
+        fetchItems: (routeCoordinates) => PoisAlongRoute.getPoisAlongRouteResult(
+            'hospitals',
+            routeCoordinates,
+            undefined,
+            { timeoutMs: ON_ROUTE_POI_FETCH_TIMEOUT_MS }
+        ),
         // Unnamed facilities get an honest generic label; names are never invented.
         formatItem: (hospital) => ({
             text: `Passa accanto a: ${hospital.name || 'Struttura sanitaria'} `,
@@ -767,11 +780,23 @@ async function renderOnRoutePoiCategory(container, category, coordinates, render
     const loading = L.DomUtil.create('div', 'on-route-loading', section);
     loading.textContent = category.loadingLabel;
 
-    let items = [];
+    let fetchResult = { status: 'unavailable', items: [], error: 'not fetched' };
     try {
-        items = await category.fetchItems(coordinates);
+        const result = await category.fetchItems(coordinates);
+        if (Array.isArray(result)) {
+            fetchResult = { status: 'available', items: result };
+        } else if (result && Array.isArray(result.items)) {
+            fetchResult = {
+                status: result.status || 'available',
+                items: result.items,
+                error: result.error,
+            };
+        } else {
+            fetchResult = { status: 'unavailable', items: [], error: 'invalid POI result' };
+        }
     } catch (error) {
         console.warn(`[routes] on-route category "${category.id}" failed:`, error);
+        fetchResult = { status: 'unavailable', items: [], error: error?.message || String(error) };
     }
 
     // Stale guard: a newer route render replaced this one.
@@ -779,6 +804,16 @@ async function renderOnRoutePoiCategory(container, category, coordinates, render
         return;
     }
     loading.remove();
+
+    const items = fetchResult.items;
+    if (fetchResult.status !== 'available') {
+        const unavailable = L.DomUtil.create('div', 'on-route-empty', section);
+        unavailable.textContent = category.unavailableLabel || 'Dati reali non disponibili ora.';
+        if (fetchResult.error) {
+            unavailable.title = fetchResult.error;
+        }
+        return;
+    }
 
     // Draw map markers for the same real items (only if the preference is active).
     renderPoiMarkersForCategory(category, items, renderToken, container);

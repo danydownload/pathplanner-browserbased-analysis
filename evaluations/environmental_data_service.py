@@ -325,35 +325,41 @@ def fetch_named_pois(
     query = f'[out:json][timeout:25];({body});out tags center {int(limit)};'
 
     data = _overpass_post(query)
+    if data is None:
+        raise RuntimeError('Overpass unavailable for POI lookup')
+
+    elements = data.get('elements') if isinstance(data, dict) else None
+    if not isinstance(elements, list):
+        raise RuntimeError('Overpass returned an invalid POI payload')
+
     pois = []
     seen_names = set()
     keep_unnamed = config['keep_unnamed_kinds']
     kind_keys = config['kind_keys']
-    if data and isinstance(data.get('elements'), list):
-        for element in data['elements']:
-            tags = element.get('tags') or {}
-            name = tags.get('name')
-            kind = _poi_kind(tags, kind_keys)
-            if not name and kind not in keep_unnamed:
+    for element in elements:
+        tags = element.get('tags') or {}
+        name = tags.get('name')
+        kind = _poi_kind(tags, kind_keys)
+        if not name and kind not in keep_unnamed:
+            continue
+        if element.get('type') == 'node':
+            lat, lon = element.get('lat'), element.get('lon')
+        else:
+            center = element.get('center') or {}
+            lat, lon = center.get('lat'), center.get('lon')
+        if lat is None or lon is None:
+            continue
+        if name:
+            dedup_key = name.strip().lower()
+            if dedup_key in seen_names:
                 continue
-            if element.get('type') == 'node':
-                lat, lon = element.get('lat'), element.get('lon')
-            else:
-                center = element.get('center') or {}
-                lat, lon = center.get('lat'), center.get('lon')
-            if lat is None or lon is None:
-                continue
-            if name:
-                dedup_key = name.strip().lower()
-                if dedup_key in seen_names:
-                    continue
-                seen_names.add(dedup_key)
-            pois.append({
-                'name': name or None,
-                'lat': float(lat),
-                'lon': float(lon),
-                'kind': kind,
-            })
+            seen_names.add(dedup_key)
+        pois.append({
+            'name': name or None,
+            'lat': float(lat),
+            'lon': float(lon),
+            'kind': kind,
+        })
 
     result = {
         'pois': pois,

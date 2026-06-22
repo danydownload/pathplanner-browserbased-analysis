@@ -151,20 +151,35 @@ export function routeBoundingBox(routeCoords, padDeg = 0.002) {
 
 const _poisCache = new Map();
 
+function unavailablePoiResult(category, error) {
+    return {
+        status: 'unavailable',
+        category,
+        pois: [],
+        error: error?.message || String(error || 'POI data unavailable'),
+    };
+}
+
 /**
  * Fetch real POIs of a category for a bounding box from /api/pois (cached,
- * non-throwing). Returns [] on any failure so the UI degrades to an honest
- * empty state rather than inventing data.
+ * status-aware). Successful empty results mean "real data available, no POIs".
+ * Failures are returned as status:"unavailable" so callers do not present false
+ * negatives when Overpass or the backend proxy is unreachable.
  */
-export async function fetchPoisForBounds(category, boundingBox, { timeoutMs = 8000 } = {}) {
+export async function fetchPoisForBoundsResult(category, boundingBox, { timeoutMs = 8000 } = {}) {
     if (!boundingBox) {
-        return [];
+        return unavailablePoiResult(category, 'missing bounding box');
     }
     const key = [category, boundingBox.minLat, boundingBox.minLon, boundingBox.maxLat, boundingBox.maxLon]
         .map((value, index) => (index === 0 ? value : Number(value).toFixed(4)))
         .join(',');
     if (_poisCache.has(key)) {
-        return _poisCache.get(key);
+        return {
+            status: 'available',
+            category,
+            pois: _poisCache.get(key),
+            cached: true,
+        };
     }
 
     const params = new URLSearchParams({
@@ -180,23 +195,76 @@ export async function fetchPoisForBounds(category, boundingBox, { timeoutMs = 80
     try {
         const response = await fetch(`/api/pois?${params.toString()}`, { signal: controller.signal });
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            let message = `HTTP ${response.status}`;
+            try {
+                const payload = await response.json();
+                if (payload?.error) {
+                    message = `${message}: ${payload.error}`;
+                }
+            } catch (_) {
+                // Keep the status-only message when the error body is not JSON.
+            }
+            throw new Error(message);
         }
         const data = await response.json();
-        const pois = Array.isArray(data?.pois) ? data.pois : [];
+        if (!Array.isArray(data?.pois)) {
+            throw new Error('invalid POI payload');
+        }
+        const pois = data.pois;
         _poisCache.set(key, pois);
-        return pois;
+        return {
+            status: 'available',
+            category,
+            pois,
+            count: typeof data.count === 'number' ? data.count : pois.length,
+            source: data.source || 'OpenStreetMap-Overpass',
+        };
     } catch (error) {
         console.warn(`[poisAlongRoute] ${category} fetch failed:`, error?.message || error);
-        return [];
+        return unavailablePoiResult(category, error);
     } finally {
         clearTimeout(timeoutId);
     }
 }
 
+/**
+ * Legacy helper for route scoring/A*: keep the old non-throwing array contract.
+ * UI should use getPoisAlongRouteResult() so it can distinguish unavailable data
+ * from a real empty result.
+ */
+export async function fetchPoisForBounds(category, boundingBox, { timeoutMs = 8000 } = {}) {
+    const result = await fetchPoisForBoundsResult(category, boundingBox, { timeoutMs });
+    return result.status === 'available' ? result.pois : [];
+}
+
 /** Convenience: fetch a category's POIs for the route bbox and return the ordered along-route list. */
-export async function getPoisAlongRoute(category, routeCoords, thresholdM = POI_PROXIMITY_THRESHOLD_M) {
+export async function getPoisAlongRouteResult(
+    category,
+    routeCoords,
+    thresholdM = POI_PROXIMITY_THRESHOLD_M,
+    options = {}
+) {
     const boundingBox = routeBoundingBox(routeCoords);
-    const pois = await fetchPoisForBounds(category, boundingBox);
-    return poisAlongRoute(routeCoords, pois, thresholdM);
+    const result = await fetchPoisForBoundsResult(category, boundingBox, options);
+    if (result.status !== 'available') {
+        return {
+            status: 'unavailable',
+            category,
+            items: [],
+            error: result.error,
+        };
+    }
+    return {
+        status: 'available',
+        category,
+        items: poisAlongRoute(routeCoords, result.pois, thresholdM),
+        fetchedCount: result.count,
+        source: result.source,
+    };
+}
+
+/** Legacy helper: available-but-empty and unavailable both map to [] for old callers. */
+export async function getPoisAlongRoute(category, routeCoords, thresholdM = POI_PROXIMITY_THRESHOLD_M) {
+    const result = await getPoisAlongRouteResult(category, routeCoords, thresholdM);
+    return result.items;
 }
