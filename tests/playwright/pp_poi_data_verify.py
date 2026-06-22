@@ -129,7 +129,8 @@ def main():
             time.sleep(0.25)
         assert state and state["panelOpen"], f"directions panel did not open: {state}"
 
-        page.click("#directionsTabOnRoute")
+        # On-route POIs now render inline below the steps (no separate tab),
+        # so there is no tab to click — just wait for the sections to load.
         deadline = time.time() + 120
         while time.time() < deadline:
             state = collect_on_route_state(page)

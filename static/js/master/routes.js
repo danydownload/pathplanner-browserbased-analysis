@@ -424,7 +424,6 @@ function renderDirectionsSidebar(route) {
         title.textContent = routeName;
     }
 
-    ensureOnRouteTabsWired();
     renderOnRoutePanel(route);
 }
 
@@ -710,39 +709,10 @@ function renderPoiMarkersForCategory(category, items, renderToken, container) {
     });
 }
 
-let _onRouteTabsWired = false;
-
-/** Wire the directions panel tab strip once (idempotent). */
-function ensureOnRouteTabsWired() {
-    if (_onRouteTabsWired) {
-        return;
-    }
-    const tabs = document.querySelectorAll('.directions-tab[data-directions-tab]');
-    if (!tabs.length) {
-        return;
-    }
-    tabs.forEach((tab) => {
-        tab.addEventListener('click', () => activateDirectionsTab(tab.dataset.directionsTab));
-    });
-    _onRouteTabsWired = true;
-}
-
-function activateDirectionsTab(tabId) {
-    document.querySelectorAll('.directions-tab[data-directions-tab]').forEach((tab) => {
-        const isActive = tab.dataset.directionsTab === tabId;
-        tab.classList.toggle('directions-tab--active', isActive);
-        tab.setAttribute('aria-selected', String(isActive));
-        const pane = document.getElementById(tab.getAttribute('aria-controls'));
-        if (pane) {
-            pane.classList.toggle('directions-tabpane--active', isActive);
-            pane.hidden = !isActive;
-        }
-    });
-}
-
 /**
- * Render the "Sul percorso" tab for the selected route: one section per POI
- * category. Only real OSM POIs; honest per-category empty state.
+ * Render the on-route POI section for the selected route: one section per POI
+ * category. Only real OSM POIs; honest per-category empty state. Rendered
+ * inline below the step list (no separate tab).
  */
 function renderOnRoutePanel(route) {
     const container = document.getElementById('onRouteContent');

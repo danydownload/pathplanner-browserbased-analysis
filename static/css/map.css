@@ -868,51 +868,15 @@ input[type="range"]::-moz-range-thumb {
     overflow-wrap: anywhere;
 }
 
-.directions-tabs {
-    display: flex;
-    flex-shrink: 0;
-    gap: 4px;
-    margin-top: 10px;
-    padding-bottom: 6px;
-    border-bottom: 0.5px solid var(--mac-hairline);
-}
-
-.directions-tab {
-    appearance: none;
-    border: 0;
-    background: transparent;
-    color: var(--color-text-muted);
-    font-size: 0.78rem;
-    font-weight: 650;
-    padding: 6px 10px;
-    border-radius: var(--mac-radius-control);
-    cursor: pointer;
-}
-
-.directions-tab:hover {
-    background: var(--mac-panel-bg-hover);
-    color: var(--color-text);
-}
-
-.directions-tab--active {
-    color: var(--color-on-primary);
-    background: var(--mac-accent);
-}
-
-.directions-tab:focus-visible {
-    outline: 3px solid var(--mac-focus-ring);
-    outline-offset: 1px;
-}
-
 .directions-tabpane {
     display: none;
-    margin-top: 10px;
 }
 
-/* The active tab pane is the only growing region of the panel, so the header
-   (and its close button), the route selector and the tabs stay pinned and the
-   long step list scrolls internally instead of pushing the close control off
-   screen on short/narrow viewports. */
+/* The active pane is the only growing region of the panel, so the header
+   (and its close button), the route selector, the preview controls and the
+   summary stay pinned while the inner scroll area (steps + on-route POIs)
+   scrolls internally instead of pushing the close control off screen on
+   short/narrow viewports. */
 .directions-tabpane--active {
     display: flex;
     flex: 1 1 auto;
@@ -920,13 +884,30 @@ input[type="range"]::-moz-range-thumb {
     flex-direction: column;
 }
 
-.on-route-content {
+/* Single scroll container holding both the turn-by-turn steps and the
+   on-route POI section, so the two no longer fight over the panel's scroll. */
+.directions-scroll {
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
     flex-direction: column;
     gap: 12px;
     overflow-y: auto;
+    padding-right: 4px;
+}
+
+.on-route-content {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Visual separator between the step list and the "Sul percorso" POI section. */
+.on-route-content:not(:empty) {
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 0.5px solid var(--mac-hairline);
 }
 
 .on-route-category-title {
@@ -1928,13 +1909,11 @@ body.right-sidebar-open.directions-open .directions-panel {
 
 .directions-list {
     display: flex;
-    min-height: 0;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     flex-direction: column;
     gap: 8px;
     margin: 0;
-    padding: 0 4px 0 0;
-    overflow-y: auto;
+    padding: 0;
     list-style: none;
 }
 
@@ -2164,7 +2143,7 @@ body.right-sidebar-open.directions-open .directions-panel {
 .directions-preview-controls {
     display: flex;
     flex-shrink: 0;
-    flex-direction: column;
+    flex-direction: row;
     gap: 8px;
 }
 
@@ -2180,16 +2159,18 @@ body.right-sidebar-open.directions-open .directions-panel {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    width: 100%;
-    min-height: 38px;
-    padding: 8px 12px;
+    gap: 6px;
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    min-height: 32px;
+    padding: 6px 10px;
     color: #1e3a8a;
     background: #ffffff;
     border: 0;
     border-radius: var(--radius-sm);
     font: inherit;
-    font-size: 0.9rem;
+    font-size: 0.82rem;
     font-weight: 700;
     cursor: pointer;
     transition: background-color 0.18s ease, transform 0.18s ease;
