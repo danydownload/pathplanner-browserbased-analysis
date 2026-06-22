@@ -870,6 +870,7 @@ input[type="range"]::-moz-range-thumb {
 
 .directions-tabs {
     display: flex;
+    flex-shrink: 0;
     gap: 4px;
     margin-top: 10px;
     padding-bottom: 6px;
@@ -908,14 +909,24 @@ input[type="range"]::-moz-range-thumb {
     margin-top: 10px;
 }
 
+/* The active tab pane is the only growing region of the panel, so the header
+   (and its close button), the route selector and the tabs stay pinned and the
+   long step list scrolls internally instead of pushing the close control off
+   screen on short/narrow viewports. */
 .directions-tabpane--active {
-    display: block;
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
 }
 
 .on-route-content {
     display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
     flex-direction: column;
     gap: 12px;
+    overflow-y: auto;
 }
 
 .on-route-category-title {
@@ -1834,6 +1845,7 @@ body.right-sidebar-open.directions-open .directions-panel {
 
 .directions-header {
     display: flex;
+    flex-shrink: 0;
     align-items: flex-start;
     justify-content: space-between;
     gap: 12px;
@@ -1896,6 +1908,7 @@ body.right-sidebar-open.directions-open .directions-panel {
 
 .directions-summary {
     display: flex;
+    flex-shrink: 0;
     flex-wrap: wrap;
     gap: 8px;
     color: #bfdbfe;
@@ -2054,6 +2067,7 @@ body.right-sidebar-open.directions-open .directions-panel {
 
 .directions-route-selector {
     display: flex;
+    flex-shrink: 0;
     flex-direction: column;
     gap: 8px;
     max-height: 160px;
@@ -2149,6 +2163,7 @@ body.right-sidebar-open.directions-open .directions-panel {
 
 .directions-preview-controls {
     display: flex;
+    flex-shrink: 0;
     flex-direction: column;
     gap: 8px;
 }

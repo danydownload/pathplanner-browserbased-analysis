@@ -29,6 +29,10 @@
   const ROUTE_PREVIEW_HARD_MAX_MS = 30000;
   // Controls how fast the sublinear (sqrt) region grows past the soft max.
   const ROUTE_PREVIEW_SOFT_KNEE_K = 50;
+  // Uniform slowdown applied to the whole duration curve. The earlier tuning
+  // played back a touch too fast to read comfortably; ~1.45x keeps it snappy
+  // but smoother. Scales the linear, knee and floor regions alike.
+  const ROUTE_PREVIEW_SLOWDOWN = 1.45;
 
   let activeRun = null;
 
@@ -539,7 +543,7 @@
   function computeRoutePreviewDurationMs(totalLengthMeters) {
     const length = Number(totalLengthMeters);
     if (!Number.isFinite(length) || length <= 0) {
-      return ROUTE_PREVIEW_MIN_TOTAL_MS;
+      return ROUTE_PREVIEW_MIN_TOTAL_MS * ROUTE_PREVIEW_SLOWDOWN;
     }
 
     const linearMs = (length / ROUTE_PREVIEW_SPEED_MPS) * 1000;
@@ -553,7 +557,7 @@
       durationMs = Math.min(durationMs, ROUTE_PREVIEW_HARD_MAX_MS);
     }
 
-    return Math.max(ROUTE_PREVIEW_MIN_TOTAL_MS, durationMs);
+    return Math.max(ROUTE_PREVIEW_MIN_TOTAL_MS, durationMs) * ROUTE_PREVIEW_SLOWDOWN;
   }
 
   // --------------------------------------------------------------------------
