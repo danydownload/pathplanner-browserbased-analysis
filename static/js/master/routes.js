@@ -17,6 +17,12 @@ import {
 
 const MAPBOX_ACCESS_TOKEN = globalThis.window?.MAPBOX_ACCESS_TOKEN || '';
 const ROUTE_COORDINATE_PRECISION = 5;
+const ROUTE_SIMILARITY_COORDINATE_PRECISION = 4;
+const ROUTE_SIMILARITY_LENGTH_RATIO = 0.05;
+const ROUTE_SIMILARITY_MIN_LENGTH_TOLERANCE_M = 80;
+const ROUTE_SIMILARITY_POINT_TOLERANCE_M = 30;
+const ROUTE_SIMILARITY_SAMPLE_COUNT = 36;
+const ROUTE_SIMILARITY_OVERLAP_THRESHOLD = 0.88;
 const ON_ROUTE_MAX_ITEMS_PER_CATEGORY = 8;
 const ROUTE_PREVIEW_DURATION_MS = 15000;
 const ROUTE_PREVIEW_FOLLOW_ZOOM = 17;
@@ -548,7 +554,7 @@ function renderRouteDirections(route, container) {
         container.removeChild(container.firstChild);
     }
 
-    const routeName = route?.routeName || route?.name || 'Percorso selezionato';
+    const routeName = getRouteDisplayName(route, 0, 'Percorso selezionato');
     const heading = L.DomUtil.create('div', 'turn-directions-header', container);
     const title = L.DomUtil.create('div', 'turn-directions-title', heading);
     title.textContent = `Indicazioni - ${routeName}`;
@@ -604,7 +610,7 @@ function renderDirectionsSidebar(route) {
         return;
     }
 
-    const routeName = route?.routeName || route?.name || 'Selected route';
+    const routeName = getRouteDisplayName(route, 0, 'Selected route');
     const distance = formatDistanceMeters(route?.length || route?.route?.summary?.totalDistance);
     const duration = formatDurationSeconds(route?.duration || route?.route?.summary?.totalTime);
 
@@ -692,6 +698,54 @@ function getUserFacingRouteDescription(route) {
     return realDataMatch ? `${baseDescription} (${realDataMatch[0]})` : baseDescription;
 }
 
+function getRouteDisplayName(route, index = 0, fallback = 'Selected route') {
+    return route?.routeDisplayName || route?.routeName || route?.name || fallback || `Route ${index + 1}`;
+}
+
+function syncRouteComparisonLabels(routes) {
+    if (!Array.isArray(routes)) {
+        return;
+    }
+
+    const optimizedRoutes = routes.filter(route => route && !route.isDirectRoute);
+    const directRoutes = routes.filter(route => route?.isDirectRoute);
+    let optimizedIndex = 0;
+    let directIndex = 0;
+
+    routes.forEach((route, index) => {
+        if (!route) {
+            return;
+        }
+
+        const originalName = route.routeName || route.name || `Route ${index + 1}`;
+        if (!route.originalRouteName) {
+            route.originalRouteName = originalName;
+        }
+
+        if (route.isDirectRoute) {
+            directIndex += 1;
+            route.routeDisplayName = directRoutes.length > 1
+                ? `Direct Route ${directIndex}`
+                : 'Direct Route';
+            return;
+        }
+
+        const isEnvironmentalAStar =
+            route.routingEngine === 'environmental_astar' ||
+            /^Environmental A\*/i.test(route.originalRouteName || originalName);
+
+        if (isEnvironmentalAStar) {
+            optimizedIndex += 1;
+            route.routeDisplayName = optimizedRoutes.length > 1
+                ? `Environmental A* Alternative ${optimizedIndex}`
+                : 'Environmental A* Route';
+            return;
+        }
+
+        route.routeDisplayName = originalName;
+    });
+}
+
 /**
  * Compute the environmental-data provenance badge for a route.
  * Synthetic fallback must never be shown with the green REAL state.
@@ -751,7 +805,7 @@ function renderRouteSelectorInfo(routeInfo, route, index, isSelected) {
 
     const heading = L.DomUtil.create('div', 'route-card-heading', routeInfo);
     const name = L.DomUtil.create('span', 'route-card-name', heading);
-    name.textContent = route.routeName || route.name || `Route ${index + 1}`;
+    name.textContent = getRouteDisplayName(route, index, `Route ${index + 1}`);
     name.style.fontWeight = isSelected ? 'bold' : 'normal';
 
     const routeType = L.DomUtil.create(
@@ -1448,6 +1502,171 @@ function buildRouteGeometryKey(route) {
     return normalizedCoordinates.join('|');
 }
 
+function getNormalizedRouteLatLonCoordinates(route) {
+    const normalizedCoordinates = [];
+
+    getRouteCoordinates(route)
+        .map(coordinateToLatLon)
+        .filter(Boolean)
+        .forEach(({ lat, lon }) => {
+            const previous = normalizedCoordinates[normalizedCoordinates.length - 1];
+            if (previous && distanceBetweenLatLngs(previous, { lat, lng: lon }) < 1) {
+                return;
+            }
+            normalizedCoordinates.push({ lat, lon, lng: lon });
+        });
+
+    return normalizedCoordinates;
+}
+
+function buildRoundedPolylineKey(coordinates, precision = ROUTE_SIMILARITY_COORDINATE_PRECISION) {
+    return coordinates
+        .map(({ lat, lon }) => `${lat.toFixed(precision)},${lon.toFixed(precision)}`)
+        .join('|');
+}
+
+function calculateCoordinateLengthMeters(coordinates) {
+    let totalLength = 0;
+    for (let i = 1; i < coordinates.length; i++) {
+        totalLength += distanceBetweenLatLngs(coordinates[i - 1], coordinates[i]);
+    }
+    return totalLength;
+}
+
+function routeLengthForSimilarity(route, coordinates) {
+    const routeLength = Number.parseFloat(route?.length ?? route?.route?.summary?.totalDistance);
+    if (Number.isFinite(routeLength) && routeLength > 0) {
+        return routeLength;
+    }
+
+    return calculateCoordinateLengthMeters(coordinates);
+}
+
+function sampleCoordinatesByDistance(coordinates, sampleCount = ROUTE_SIMILARITY_SAMPLE_COUNT) {
+    if (!Array.isArray(coordinates) || coordinates.length === 0) {
+        return [];
+    }
+
+    if (coordinates.length === 1 || sampleCount <= 1) {
+        return [coordinates[0]];
+    }
+
+    const segmentLengths = [];
+    let totalLength = 0;
+    for (let i = 1; i < coordinates.length; i++) {
+        const segmentLength = distanceBetweenLatLngs(coordinates[i - 1], coordinates[i]);
+        segmentLengths.push(segmentLength);
+        totalLength += segmentLength;
+    }
+
+    if (totalLength <= 0) {
+        return coordinates.slice(0, Math.min(coordinates.length, sampleCount));
+    }
+
+    const samples = [];
+    let segmentIndex = 0;
+    let traversedLength = 0;
+
+    for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex++) {
+        const targetLength = (totalLength * sampleIndex) / (sampleCount - 1);
+
+        while (
+            segmentIndex < segmentLengths.length - 1 &&
+            traversedLength + segmentLengths[segmentIndex] < targetLength
+        ) {
+            traversedLength += segmentLengths[segmentIndex];
+            segmentIndex += 1;
+        }
+
+        const start = coordinates[segmentIndex];
+        const end = coordinates[segmentIndex + 1] || start;
+        const segmentLength = segmentLengths[segmentIndex] || 0;
+        const ratio = segmentLength > 0
+            ? Math.max(0, Math.min(1, (targetLength - traversedLength) / segmentLength))
+            : 0;
+
+        samples.push({
+            lat: start.lat + ((end.lat - start.lat) * ratio),
+            lon: start.lon + ((end.lon - start.lon) * ratio),
+            lng: start.lon + ((end.lon - start.lon) * ratio)
+        });
+    }
+
+    return samples;
+}
+
+function calculateSampleOverlapRatio(firstCoordinates, secondCoordinates) {
+    const firstSamples = sampleCoordinatesByDistance(firstCoordinates);
+    const secondSamples = sampleCoordinatesByDistance(secondCoordinates);
+    const sampleCount = Math.min(firstSamples.length, secondSamples.length);
+
+    if (sampleCount === 0) {
+        return 0;
+    }
+
+    let matchingSamples = 0;
+    for (let i = 0; i < sampleCount; i++) {
+        if (distanceBetweenLatLngs(firstSamples[i], secondSamples[i]) <= ROUTE_SIMILARITY_POINT_TOLERANCE_M) {
+            matchingSamples += 1;
+        }
+    }
+
+    return matchingSamples / sampleCount;
+}
+
+function routesHaveSimilarGeometry(existingRoute, candidateRoute) {
+    const existingCoordinates = getNormalizedRouteLatLonCoordinates(existingRoute);
+    const candidateCoordinates = getNormalizedRouteLatLonCoordinates(candidateRoute);
+
+    if (existingCoordinates.length < 2 || candidateCoordinates.length < 2) {
+        return false;
+    }
+
+    const existingRoundedKey = buildRoundedPolylineKey(existingCoordinates);
+    const candidateRoundedKey = buildRoundedPolylineKey(candidateCoordinates);
+    if (existingRoundedKey && existingRoundedKey === candidateRoundedKey) {
+        return true;
+    }
+
+    const existingLength = routeLengthForSimilarity(existingRoute, existingCoordinates);
+    const candidateLength = routeLengthForSimilarity(candidateRoute, candidateCoordinates);
+    const minLength = Math.min(existingLength, candidateLength);
+    const lengthTolerance = Math.max(
+        ROUTE_SIMILARITY_MIN_LENGTH_TOLERANCE_M,
+        minLength * ROUTE_SIMILARITY_LENGTH_RATIO
+    );
+
+    if (Math.abs(existingLength - candidateLength) > lengthTolerance) {
+        return false;
+    }
+
+    const forwardOverlap = calculateSampleOverlapRatio(existingCoordinates, candidateCoordinates);
+    const reverseOverlap = calculateSampleOverlapRatio(existingCoordinates, [...candidateCoordinates].reverse());
+    return Math.max(forwardOverlap, reverseOverlap) >= ROUTE_SIMILARITY_OVERLAP_THRESHOLD;
+}
+
+function routesComparableForDedup(existingRoute, candidateRoute, options = {}) {
+    if (options.finalGeometryOnly !== true) {
+        return true;
+    }
+
+    return Boolean(existingRoute?._hasFinalMapboxGeometry && candidateRoute?._hasFinalMapboxGeometry);
+}
+
+function findDuplicateRouteEntry(uniqueEntries, candidateRoute, candidateKey, options = {}) {
+    return uniqueEntries.find(entry => {
+        if (!routesComparableForDedup(entry.route, candidateRoute, options)) {
+            return false;
+        }
+
+        if (candidateKey && entry.routeKey === candidateKey) {
+            return true;
+        }
+
+        return routesHaveSimilarGeometry(entry.route, candidateRoute);
+    }) || null;
+}
+
 function hashString(value) {
     const stringValue = String(value || '');
     let hash = 0;
@@ -1541,24 +1760,26 @@ function removeRouteControlFromMap(route, map, currentRouting) {
     route.removedFromMap = true;
 }
 
-function deduplicateRoutesForComparison(routes, map, currentRouting) {
+function deduplicateRoutesForComparison(routes, map, currentRouting, options = {}) {
     if (!Array.isArray(routes) || routes.length <= 1) {
         return Array.isArray(routes) ? routes : [];
     }
 
     const uniqueRoutes = [];
-    const seenByGeometry = new Map();
+    const uniqueEntries = [];
     const duplicateRoutes = [];
 
     routes.forEach((route, index) => {
         const identity = ensureRouteIdentity(route, index);
         const routeKey = identity.routeGeometryHash || `route-${index}`;
-        const existing = seenByGeometry.get(routeKey);
+        const existing = findDuplicateRouteEntry(uniqueEntries, route, routeKey, options);
 
         if (!existing) {
+            route._deduplicatedFromComparison = false;
             uniqueRoutes.push(route);
-            seenByGeometry.set(routeKey, {
+            uniqueEntries.push({
                 route,
+                routeKey,
                 uniqueIndex: uniqueRoutes.length - 1
             });
             return;
@@ -1567,17 +1788,22 @@ function deduplicateRoutesForComparison(routes, map, currentRouting) {
         if (shouldReplaceDuplicateRoute(existing.route, route)) {
             duplicateRoutes.push(existing.route);
             uniqueRoutes[existing.uniqueIndex] = route;
-            seenByGeometry.set(routeKey, {
+            route._deduplicatedFromComparison = false;
+            uniqueEntries[existing.uniqueIndex] = {
                 route,
+                routeKey,
                 uniqueIndex: existing.uniqueIndex
-            });
+            };
             return;
         }
 
         duplicateRoutes.push(route);
     });
 
-    duplicateRoutes.forEach(route => removeRouteControlFromMap(route, map, currentRouting));
+    duplicateRoutes.forEach(route => {
+        route._deduplicatedFromComparison = true;
+        removeRouteControlFromMap(route, map, currentRouting);
+    });
 
     if (duplicateRoutes.length > 0) {
         routes.splice(0, routes.length, ...uniqueRoutes);
@@ -2615,6 +2841,8 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
         return;
     }
 
+    syncRouteComparisonLabels(routes);
+
     // Ensure all routes have valid scores
     routes.forEach((route, index) => {
         ensureRouteIdentity(route, index);
@@ -2835,7 +3063,7 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
             removeButton.type = 'button';
             removeButton.className = 'directions-route-card-remove';
             removeButton.innerHTML = '&times;';
-            removeButton.title = `Remove ${route.routeName || route.name || `Route ${index + 1}`}`;
+            removeButton.title = `Remove ${getRouteDisplayName(route, index, `Route ${index + 1}`)}`;
             removeButton.setAttribute('aria-label', removeButton.title);
 
             routeCard.appendChild(radio);
@@ -3802,17 +4030,63 @@ async function routeWithPrecalculatedRoutes(
             if (!routeObject) return;
 
             const selectorContainer = getRouteSelectorContainer();
-            const radio = selectorContainer?.querySelector?.(`input[name="route-selection"][data-index="${routeIndex}"]`);
+            const currentRouteIndex = allRoutes.indexOf(routeObject);
+            const displayIndex = currentRouteIndex >= 0 ? currentRouteIndex : routeIndex;
+            const radio = selectorContainer?.querySelector?.(`input[name="route-selection"][data-index="${displayIndex}"]`);
             const cardInfo = radio?.closest?.('.directions-route-card')?.querySelector?.('.directions-route-card-info');
             const isSelected = Boolean(radio?.checked) || routeObject.isBest;
 
             if (cardInfo) {
-                renderRouteSelectorInfo(cardInfo, routeObject, routeIndex, isSelected);
+                renderRouteSelectorInfo(cardInfo, routeObject, displayIndex, isSelected);
             }
             if (isSelected && options.renderSidebar !== false) {
                 applyRouteLineStyle(routeObject, true);
                 renderDirectionsSidebar(routeObject);
             }
+        }
+
+        function deduplicateFinalizedPrecalculatedRoutes(reason) {
+            if (!isActiveRoutingSession(currentRouting, routingSessionId) || allRoutes.length <= 1) {
+                return false;
+            }
+
+            const beforeRoutes = allRoutes.slice();
+            const selectedRoute = beforeRoutes.find(route => route.isBest) || beforeRoutes[0];
+            deduplicateRoutesForComparison(allRoutes, map, currentRouting, { finalGeometryOnly: true });
+            const removedRoutes = beforeRoutes.filter(route => !allRoutes.includes(route));
+
+            if (removedRoutes.length === 0) {
+                return false;
+            }
+
+            removedRoutes.forEach(route => {
+                removeRouteFromCsvData(route, csvData, currentPatientCondition);
+            });
+
+            if (allRoutes.length === 0) {
+                clearRouteSelectorContainer();
+                clearDirectionsSidebarRouteUi();
+                console.warn(`[routeWithPrecalculatedRoutes] All routes collapsed during final dedup (${reason}).`);
+                return true;
+            }
+
+            const nextSelectedRoute = selectedRoute && allRoutes.includes(selectedRoute)
+                ? selectedRoute
+                : allRoutes[0];
+            allRoutes.forEach(route => {
+                route.isBest = route === nextSelectedRoute;
+            });
+            syncRouteComparisonLabels(allRoutes);
+
+            console.info(
+                `[routeWithPrecalculatedRoutes] Removed ${removedRoutes.length} duplicate final route(s) after ${reason}; ` +
+                `showing ${allRoutes.length} distinct route(s).`
+            );
+            if (typeof toastr !== 'undefined') {
+                toastr.info(`Showing ${allRoutes.length} distinct route${allRoutes.length === 1 ? '' : 's'}; duplicate final geometry removed.`);
+            }
+            setupRouteControlPanel(map, allRoutes, currentRouting, currentPatientCondition, currentPreferences, csvData);
+            return true;
         }
 
         console.log(`[routeWithPrecalculatedRoutes] Processing ${preCalculatedRoutes.length} pre-calculated routes`);
@@ -3856,6 +4130,7 @@ async function routeWithPrecalculatedRoutes(
 
                 if (Array.isArray(routePath.coordinates) && routePath.coordinates.length > 0) {
                     routeObject.coordinates = routePath.coordinates;
+                    routeObject._hasFinalMapboxGeometry = routePath.coordinates.length > 1;
                 }
                 if (Array.isArray(acceptedWaypoints) && acceptedWaypoints.length > 0) {
                     routeObject.waypoints = acceptedWaypoints;
@@ -3870,6 +4145,9 @@ async function routeWithPrecalculatedRoutes(
                 }
 
                 refreshPrecalculatedRouteDisplay(routeObject, i);
+                if (routeObject._hasFinalMapboxGeometry) {
+                    deduplicateFinalizedPrecalculatedRoutes(options.isDirectFallback ? 'direct cap fallback' : 'Mapbox geometry replacement');
+                }
             }
 
             function queueDirectCapReroute() {

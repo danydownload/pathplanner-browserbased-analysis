@@ -957,6 +957,68 @@ class PriorityQueue {
 }
 
 /**
+ * Build a stable signature for an A* grid path so identical alternatives are
+ * rejected before Mapbox snapping can turn them into duplicate UI cards.
+ */
+const ASTAR_ROUTE_SIGNATURE_PRECISION = 4;
+const ASTAR_ALTERNATIVE_MAX_ATTEMPTS = 5;
+
+function normalizeRouteNode(node) {
+    if (!node) {
+        return null;
+    }
+
+    const lat = Number.parseFloat(node.lat);
+    const lon = Number.parseFloat(node.lon ?? node.lng);
+    return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+}
+
+function getRoutePathNodes(routeResult) {
+    return Array.isArray(routeResult?.route) ? routeResult.route : [];
+}
+
+function buildRouteGridSignature(routeResult, precision = ASTAR_ROUTE_SIGNATURE_PRECISION) {
+    const normalizedNodes = [];
+
+    getRoutePathNodes(routeResult)
+        .map(normalizeRouteNode)
+        .filter(Boolean)
+        .forEach(node => {
+            const previous = normalizedNodes[normalizedNodes.length - 1];
+            const key = `${node.lat.toFixed(precision)},${node.lon.toFixed(precision)}`;
+            if (!previous || previous.key !== key) {
+                normalizedNodes.push({ key });
+            }
+        });
+
+    return normalizedNodes.map(node => node.key).join('|');
+}
+
+function addRoutePenalties(penalties, routeResult, nodePenalty = 100, nearbyPenalty = 50) {
+    for (const node of getRoutePathNodes(routeResult)) {
+        const normalizedNode = normalizeRouteNode(node);
+        if (!normalizedNode) {
+            continue;
+        }
+
+        const nodeId = nodeToId(normalizedNode);
+        const currentPenalty = penalties.get(nodeId) || 0;
+        penalties.set(nodeId, currentPenalty + nodePenalty);
+
+        // Also penalize nearby nodes so small grid shifts do not immediately
+        // recreate the same corridor.
+        const penaltyRadius = 0.001; // Roughly 100m
+        for (let lat = normalizedNode.lat - penaltyRadius; lat <= normalizedNode.lat + penaltyRadius; lat += penaltyRadius / 2) {
+            for (let lon = normalizedNode.lon - penaltyRadius; lon <= normalizedNode.lon + penaltyRadius; lon += penaltyRadius / 2) {
+                const nearbyId = nodeToId({ lat, lon });
+                const currentNearbyPenalty = penalties.get(nearbyId) || 0;
+                penalties.set(nearbyId, currentNearbyPenalty + nearbyPenalty);
+            }
+        }
+    }
+}
+
+/**
  * Generate multiple alternative routes using A*
  * @param {Object} start - Starting point
  * @param {Object} goal - Goal point
@@ -1006,69 +1068,100 @@ export async function generateAlternativeRoutes(start, goal, map, patientConditi
         poiLists,
     );
     
-    const routes = [firstRoute];
-    
-    // For each additional route, add penalties to areas of previous routes
-    const penalties = new Map(); // Maps nodeId -> penalty
-    
-    for (let i = 1; i < effectiveNumRoutes; i++) {
-        if (!benchmarkMode) {
-            console.log(`Generating alternative route ${i + 1}`);
-        }
-        
-        // Add penalties to previously found routes
-        for (const route of routes) {
-            for (const node of route.route) {
-                const nodeId = nodeToId(node);
-                const currentPenalty = penalties.get(nodeId) || 0;
-                penalties.set(nodeId, currentPenalty + 100); // Add significant penalty
-                
-                // Also penalize nearby nodes
-                const nearbyPenalty = 50;
-                const penaltyRadius = 0.001; // Roughly 100m
-                
-                for (let lat = node.lat - penaltyRadius; lat <= node.lat + penaltyRadius; lat += penaltyRadius / 2) {
-                    for (let lon = node.lon - penaltyRadius; lon <= node.lon + penaltyRadius; lon += penaltyRadius / 2) {
-                        const nearbyId = nodeToId({ lat, lon });
-                        const currentNearbyPenalty = penalties.get(nearbyId) || 0;
-                        penalties.set(nearbyId, currentNearbyPenalty + nearbyPenalty);
-                    }
-                }
-            }
-        }
-        
-        // Create a modified cost calculation function with penalties
-        const originalCalculateCost = calculateCost;
-        const calculateCostWithPenalties = async (current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists, poiDistances) => {
-            let cost = await originalCalculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists, poiDistances);
-            
-            // Add penalties for previously visited nodes
-            const neighborId = nodeToId(neighbor);
-            const penalty = penalties.get(neighborId) || 0;
-            cost += penalty;
-            
-            return cost;
-        };
-        
-        // Temporarily replace the cost function
-        calculateCost = calculateCostWithPenalties;
-        
-        // Generate alternative route
-        const alternativeRoute = await findOptimalRoute(
-            start,
-            goal,
-            map,
-            patientCondition,
-            null,
-            gridResolution,
-            preferences,
-            poiLists,
-        );
+    const routes = [];
+    const acceptedRouteSignatures = new Set();
 
-        routes.push(alternativeRoute);
-        
-        // Restore original cost function
-        calculateCost = originalCalculateCost;
+    function acceptDistinctRoute(routeResult, label) {
+        if (!routeResult) {
+            return false;
+        }
+
+        const signature = buildRouteGridSignature(routeResult);
+        if (signature && acceptedRouteSignatures.has(signature)) {
+            if (!benchmarkMode) {
+                console.warn(`[generateAlternativeRoutes] Skipping duplicate ${label}; A* grid signature already accepted.`);
+            }
+            return false;
+        }
+
+        routeResult.routeGridSignature = signature;
+        routes.push(routeResult);
+        if (signature) {
+            acceptedRouteSignatures.add(signature);
+        }
+        return true;
+    }
+
+    acceptDistinctRoute(firstRoute, 'primary route');
+
+    // For each additional route, add penalties to areas of previous routes.
+    const penalties = new Map(); // Maps nodeId -> penalty
+    addRoutePenalties(penalties, firstRoute);
+
+    while (routes.length < effectiveNumRoutes) {
+        const routeNumber = routes.length + 1;
+        if (!benchmarkMode) {
+            console.log(`Generating alternative route ${routeNumber}`);
+        }
+
+        let acceptedAlternative = false;
+
+        for (let attempt = 0; attempt < ASTAR_ALTERNATIVE_MAX_ATTEMPTS; attempt++) {
+            // Create a modified cost calculation function with penalties
+            const originalCalculateCost = calculateCost;
+            const calculateCostWithPenalties = async (current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists, poiDistances) => {
+                let cost = await originalCalculateCost(current, neighbor, currentGScore, patientCondition, environmentalData, prefs, lists, poiDistances);
+
+                // Add penalties for previously visited nodes
+                const neighborId = nodeToId(neighbor);
+                const penalty = penalties.get(neighborId) || 0;
+                cost += penalty;
+
+                return cost;
+            };
+
+            let alternativeRoute = null;
+            try {
+                // Temporarily replace the cost function
+                calculateCost = calculateCostWithPenalties;
+
+                // Generate alternative route
+                alternativeRoute = await findOptimalRoute(
+                    start,
+                    goal,
+                    map,
+                    patientCondition,
+                    null,
+                    gridResolution,
+                    preferences,
+                    poiLists,
+                );
+            } finally {
+                // Restore original cost function even if A* fails
+                calculateCost = originalCalculateCost;
+            }
+
+            if (acceptDistinctRoute(alternativeRoute, `alternative route ${routeNumber} attempt ${attempt + 1}`)) {
+                addRoutePenalties(penalties, alternativeRoute);
+                acceptedAlternative = true;
+                break;
+            }
+
+            // Increase penalties around the duplicate corridor and retry.
+            addRoutePenalties(
+                penalties,
+                alternativeRoute,
+                150 * (attempt + 1),
+                75 * (attempt + 1)
+            );
+        }
+
+        if (!acceptedAlternative) {
+            if (!benchmarkMode) {
+                console.warn(`[generateAlternativeRoutes] Could only produce ${routes.length} distinct A* route(s).`);
+            }
+            break;
+        }
     }
     
     // Sort routes by environmental score
@@ -1460,4 +1553,4 @@ export function haversineDistance(lat1, lon1, lat2, lon2) {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     
     return R * c;
-} 
+}
