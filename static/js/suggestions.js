@@ -8,7 +8,9 @@ document.addEventListener("DOMContentLoaded", function() {
     const useCurrentLocationEnd = document.getElementById('useCurrentLocationEnd');
 
     const SEARCHBOX_ENDPOINT = 'https://api.mapbox.com/search/searchbox/v1';
-    const SEARCHBOX_TYPES = 'address,poi,place,city,locality,neighborhood,street,category';
+    const SEARCHBOX_TYPES = 'address,street,poi,place,city,locality,region,neighborhood,category';
+    const SEARCHBOX_COUNTRY = 'IT';
+    const SEARCHBOX_LANGUAGE = 'it';
     const SUGGESTION_LIMIT = '10';
     const MIN_QUERY_LENGTH = 3;
 
@@ -98,6 +100,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 session_token: session.token,
                 limit: SUGGESTION_LIMIT,
                 types: SEARCHBOX_TYPES,
+                country: SEARCHBOX_COUNTRY,
+                language: SEARCHBOX_LANGUAGE,
                 proximity: getMapProximity()
             });
 

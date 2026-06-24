@@ -30,32 +30,79 @@ function withTimeout(promise, ms, label = 'operation') {
     ]);
 }
 
+// Detour cap for the FINAL rendered (street-snapped) route. Mirrors the A*
+// grid cap (environmentalAStar.DETOUR_CAP). Shared so the future "distance
+// tolerance" slider can drive both.
+export const RENDER_DETOUR_CAP = 1.3;
+// A path node must deviate at least this far (perpendicular, meters) from the
+// straight start→goal line before we hand it to Mapbox as a via — below this the
+// bow is noise and we route directly.
+const MIN_VIA_DEVIATION_M = 150;
+
+function toLatLon(n) {
+    return { lat: n.lat, lon: typeof n.lon !== 'undefined' ? n.lon : n.lng };
+}
+
+function haversineMeters(a, b) {
+    const R = 6371e3;
+    const p1 = (a.lat * Math.PI) / 180;
+    const p2 = (b.lat * Math.PI) / 180;
+    const dp = ((b.lat - a.lat) * Math.PI) / 180;
+    const dl = ((b.lon - a.lon) * Math.PI) / 180;
+    const x = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+// Perpendicular distance (meters, planar approx) from point p to the infinite
+// line through a and b.
+function perpDistanceMeters(p, a, b) {
+    const mPerLat = 111320;
+    const mPerLon = 111320 * Math.cos((a.lat * Math.PI) / 180);
+    const bx = (b.lon - a.lon) * mPerLon;
+    const by = (b.lat - a.lat) * mPerLat;
+    const px = (p.lon - a.lon) * mPerLon;
+    const py = (p.lat - a.lat) * mPerLat;
+    const len2 = bx * bx + by * by;
+    if (len2 === 0) return Math.hypot(px, py);
+    return Math.abs(px * by - py * bx) / Math.sqrt(len2);
+}
+
 /**
- * Down-sample A* grid path for Mapbox multi-waypoint routing (max ~12 points).
+ * Pick a SMALL set of strategic, monotone via-points for Mapbox street routing.
+ *
+ * Handing Mapbox the full ~12-point grid path makes it snap each off-street grid
+ * node (~170 m apart) to a different road and weave between them in order, which
+ * balloons the rendered route to 2–6x the direct distance with zig-zag loops.
+ * Instead we give Mapbox at most ONE intermediate that captures the route INTENT:
+ *   - via-point routes (explicit park): [start, park, goal]
+ *   - cost-model routes: [start, apex, goal] where apex is the path node of max
+ *     perpendicular deviation from the start→goal line, included only when that
+ *     deviation is meaningful (> MIN_VIA_DEVIATION_M); otherwise [start, goal].
+ * @param {Array} path - A* grid path nodes
+ * @param {Object|null} viaPoint - explicit via (e.g. park) for via-point routes
+ * @returns {Array<{lat,lon}>}
  */
-function simplifyPathForMapbox(path, maxPoints = 12) {
-    if (!path || path.length === 0) {
-        return [];
+function selectMapboxWaypoints(path, viaPoint = null) {
+    if (!path || path.length === 0) return [];
+    const start = toLatLon(path[0]);
+    const goal = toLatLon(path[path.length - 1]);
+    if (path.length < 3) return [start, goal];
+
+    if (viaPoint && typeof viaPoint.lat === 'number' && typeof viaPoint.lon === 'number') {
+        return [start, { lat: viaPoint.lat, lon: viaPoint.lon }, goal];
     }
-    if (path.length <= maxPoints) {
-        return path.map((n) => ({
-            lat: n.lat,
-            lon: typeof n.lon !== 'undefined' ? n.lon : n.lng,
-        }));
+
+    let apex = null;
+    let maxDev = 0;
+    for (let i = 1; i < path.length - 1; i++) {
+        const pt = toLatLon(path[i]);
+        const dev = perpDistanceMeters(pt, start, goal);
+        if (dev > maxDev) {
+            maxDev = dev;
+            apex = pt;
+        }
     }
-    const step = Math.max(1, Math.floor(path.length / (maxPoints - 1)));
-    const out = [];
-    for (let i = 0; i < path.length; i += step) {
-        const n = path[i];
-        out.push({ lat: n.lat, lon: typeof n.lon !== 'undefined' ? n.lon : n.lng });
-    }
-    const last = path[path.length - 1];
-    const lastPt = { lat: last.lat, lon: typeof last.lon !== 'undefined' ? last.lon : last.lng };
-    const tail = out[out.length - 1];
-    if (!tail || tail.lat !== lastPt.lat || tail.lon !== lastPt.lon) {
-        out.push(lastPt);
-    }
-    return out;
+    return apex && maxDev > MIN_VIA_DEVIATION_M ? [start, apex, goal] : [start, goal];
 }
 
 async function convertAstarRoutesToPlannerFormat(astarRoutes, patientCondition, transportMode) {
@@ -67,7 +114,10 @@ async function convertAstarRoutesToPlannerFormat(astarRoutes, patientCondition, 
             continue;
         }
 
-        const routePoints = simplifyPathForMapbox(path);
+        // Hand Mapbox only a few strategic via-points (start + ≤1 via/apex + goal)
+        // instead of the full down-sampled grid path, which Mapbox would weave
+        // through and balloon to several times the direct distance.
+        const routePoints = selectMapboxWaypoints(path, ar.viaPoint);
         const environmentalData =
             ar.environmentalData && ar.environmentalData.length > 0
                 ? ar.environmentalData
