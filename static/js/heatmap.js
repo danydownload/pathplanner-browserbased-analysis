@@ -26,18 +26,6 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     };
 
-    var pollenHeatOptions = {
-        radius: 48,
-        blur: 85,
-        gradient: {
-            0.0: '#d9f99d',
-            0.25: '#84cc16',
-            0.5: '#eab308',
-            0.75: '#f97316',
-            1.0: '#a16207'
-        }
-    };
-
     function generateDummyPoints(centerLat, centerLng, value, numPoints, maxDistance) {
         var points = [];
         for (var i = 0; i < numPoints; i++) {
@@ -48,35 +36,6 @@ document.addEventListener("DOMContentLoaded", function() {
             points.push([offsetLat, offsetLng, value * 0.2]);
         }
         return points;
-    }
-
-    function generatePollenDemoData() {
-        var center = map.getCenter ? map.getCenter() : { lat: 44.645819, lng: 10.925719 };
-        var heatData = [];
-        var demoMarkers = [];
-        var types = ['Grass', 'Birch', 'Olive', 'Ragweed'];
-
-        for (var i = 0; i < 90; i++) {
-            var angle = Math.random() * Math.PI * 2;
-            var distance = Math.random() * 6000;
-            var lat = center.lat + (distance * Math.cos(angle)) / 111000;
-            var lng = center.lng + (distance * Math.sin(angle)) / (111000 * Math.cos(center.lat * Math.PI / 180));
-            var value = Math.round(10 + Math.random() * 130);
-            heatData.push([lat, lng, value]);
-
-            if (i % 6 === 0) {
-                var type = types[Math.floor(Math.random() * types.length)];
-                var marker = L.circleMarker([lat, lng], {
-                    radius: 7,
-                    color: '#65a30d',
-                    fillColor: '#84cc16',
-                    fillOpacity: 0.7
-                }).bindPopup('<strong>Pollen demo station</strong><br>' + type + ' pollen: ' + value + ' grains/m³');
-                demoMarkers.push(marker);
-            }
-        }
-
-        return { heatData: heatData, markers: demoMarkers };
     }
 
     function updateVisibleMarkers() {
@@ -130,12 +89,6 @@ document.addEventListener("DOMContentLoaded", function() {
             toggleLayer(layerId);
         });
     }
-
-    // Pollen demo layer is generated immediately and does not depend on the station API.
-    var pollenDemo = generatePollenDemoData();
-    heatLayers.pollen = L.heatLayer(pollenDemo.heatData, pollenHeatOptions);
-    layerMarkers.pollen = pollenDemo.markers;
-    registerLayerButton('pollen');
 
     // Fetch real station data and build pollutant heatmaps.
     fetch('/api/stazioni_dati/')
