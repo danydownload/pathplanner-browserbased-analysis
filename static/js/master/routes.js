@@ -4152,7 +4152,12 @@ async function routeWithPrecalculatedRoutes(
             }
             const displayIndex = currentRouteIndex;
             const radio = selectorContainer?.querySelector?.(`input[name="route-selection"][data-index="${displayIndex}"]`);
-            const cardInfo = radio?.closest?.('.directions-route-card')?.querySelector?.('.directions-route-card-info');
+            // TODO2: renderRouteSelectorInfo() renames the info container's class from
+            // 'directions-route-card-info' to 'route-card-content' on its first render,
+            // so a stale single-class selector found nothing on refresh and the card
+            // kept its pre-Mapbox via-point length forever. Match either class so the
+            // card updates to the real Mapbox street distance once geometry finalizes.
+            const cardInfo = radio?.closest?.('.directions-route-card')?.querySelector?.('.directions-route-card-info, .route-card-content');
             const isSelected = Boolean(radio?.checked) || routeObject.isBest;
 
             if (cardInfo) {
