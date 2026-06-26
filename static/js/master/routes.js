@@ -1652,10 +1652,25 @@ function routesHaveSimilarGeometry(existingRoute, candidateRoute) {
         return true;
     }
 
-    // #4: genuinely-distinct env-A* alternatives must NOT be merged by the fuzzy
-    // length/overlap heuristic below (Mapbox snapping two distinct grid paths onto
-    // ~the same streets used to wrongly collapse them). Exact dups already handled.
-    if (areDistinctAstarAlternatives(existingRoute, candidateRoute)) {
+    // TODO1: two routes carrying the SAME non-empty A* alternative signature are the
+    // same generated alternative (the signature encodes the grid path) — collapse
+    // them upstream regardless of post-snap geometry jitter.
+    const existingSignature = existingRoute?.astarAlternativeSignature;
+    const candidateSignature = candidateRoute?.astarAlternativeSignature;
+    if (existingSignature && candidateSignature && existingSignature === candidateSignature) {
+        return true;
+    }
+
+    // #4 + TODO1: genuinely-distinct env-A* alternatives must not be merged by the
+    // fuzzy heuristic ONLY once Mapbox has snapped both onto the street network — two
+    // distinct grid paths can finalize onto ~the same roads and would wrongly
+    // collapse. At the GRID stage (before final geometry) we deliberately DO let the
+    // heuristic collapse near-identical grid alternatives so duplicates are removed
+    // UPSTREAM, at first render, instead of flickering until each route finalizes.
+    const bothFinalized = Boolean(
+        existingRoute?._hasFinalMapboxGeometry && candidateRoute?._hasFinalMapboxGeometry
+    );
+    if (bothFinalized && areDistinctAstarAlternatives(existingRoute, candidateRoute)) {
         return false;
     }
 
@@ -1841,6 +1856,54 @@ function deduplicateRoutesForComparison(routes, map, currentRouting, options = {
         console.info(`[deduplicateRoutesForComparison] Collapsed ${duplicateRoutes.length} duplicate route(s) from the comparison panel.`);
     }
 
+    return routes;
+}
+
+// TODO1: keep only routes computed on REAL environmental data (real air-quality /
+// pollen station data). Optimized routes whose env data is 100% synthetic
+// (realDataPercentage === 0) are hidden so the user never compares routes that were
+// "optimized" on fabricated data. Direct/reference routes are exempt (they are not
+// optimized on env data). The panel is NEVER emptied: if no real-data optimized
+// route survives (e.g. the env APIs were unreachable for this run) the original set
+// is kept untouched — the per-route SYNTHETIC badge already signals provenance.
+// Mutates `routes` in place (mirroring deduplicateRoutesForComparison) so the
+// caller's array and the rendered card indices stay in sync.
+function filterRoutesToRealData(routes, map, currentRouting) {
+    if (!Array.isArray(routes) || routes.length <= 1) {
+        return Array.isArray(routes) ? routes : [];
+    }
+
+    const isRealDataRoute = (route) => {
+        if (route?.isDirectRoute) {
+            return true;
+        }
+        const pct = Number.parseFloat(route?.realDataPercentage);
+        return Number.isFinite(pct) && pct > 0;
+    };
+
+    const kept = routes.filter(isRealDataRoute);
+    const keptOptimizedReal = kept.some(route => !route.isDirectRoute);
+
+    // Never degrade to an empty or direct-only panel.
+    if (kept.length === 0 || !keptOptimizedReal) {
+        return routes;
+    }
+
+    const dropped = routes.filter(route => !kept.includes(route));
+    if (dropped.length === 0) {
+        return routes;
+    }
+
+    dropped.forEach(route => {
+        route._filteredSyntheticOnly = true;
+        removeRouteControlFromMap(route, map, currentRouting);
+    });
+
+    routes.splice(0, routes.length, ...kept);
+    console.info(
+        `[filterRoutesToRealData] Hid ${dropped.length} synthetic-only route(s); ` +
+        `showing ${routes.length} route(s) computed on real environmental data.`
+    );
     return routes;
 }
 
@@ -2865,6 +2928,8 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
     // controls are also normalized through this path before panel selection.
     clearCurrentRoutingLayers(map, currentRouting, { clearUi: false, clearWaypoints: false });
     routes = deduplicateRoutesForComparison(routes, map, currentRouting);
+    // TODO1: drop synthetic-only routes BEFORE the panel renders (never empties it).
+    routes = filterRoutesToRealData(routes, map, currentRouting);
 
     if (routes.length === 0) {
         clearRouteSelectorContainer();
@@ -4079,7 +4144,13 @@ async function routeWithPrecalculatedRoutes(
 
             const selectorContainer = getRouteSelectorContainer();
             const currentRouteIndex = allRoutes.indexOf(routeObject);
-            const displayIndex = currentRouteIndex >= 0 ? currentRouteIndex : routeIndex;
+            // TODO1: a route removed from allRoutes (deduped or hidden as
+            // synthetic-only) has no card — skip rather than fall back to a stale
+            // positional index that would clobber another route's card.
+            if (currentRouteIndex < 0) {
+                return;
+            }
+            const displayIndex = currentRouteIndex;
             const radio = selectorContainer?.querySelector?.(`input[name="route-selection"][data-index="${displayIndex}"]`);
             const cardInfo = radio?.closest?.('.directions-route-card')?.querySelector?.('.directions-route-card-info');
             const isSelected = Boolean(radio?.checked) || routeObject.isBest;
