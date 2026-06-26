@@ -52,10 +52,14 @@ def test_search_grid_widens_with_tolerance():
 
 
 def test_green_reward_scales_edge_cost(monkeypatch):
-    # Stub the env lookup so the test is deterministic and network-free: a maximally
-    # green node (greenVisibility=1.0) with neutral everything else.
+    # Stub the env lookup so the test is deterministic and network-free. The node is
+    # green (greenVisibility=1.0) BUT carries a real baseline penalty (poor air
+    # quality) so the green reward operates in the positive-penalty regime. The P0
+    # audit fix floors the net penalty at 0 (arc >= physical distance), so a node
+    # whose reward already exceeds every penalty would clamp to the floor at EVERY
+    # tolerance; we keep a positive baseline so the tolerance effect is observable.
     green_env = {
-        'airQuality': 4.0, 'temperature': 22.0, 'humidity': 50.0,
+        'airQuality': 8.0, 'temperature': 22.0, 'humidity': 50.0,
         'noise': 3.0, 'slope': 0.0, 'greenSpace': 10.0, 'weather': 1.0,
         'trafficDensity': 0.0, 'greenVisibility': 1.0,
         'emergencyAccessibility': 0.0, 'surfaceQuality': 0.0, 'sensoryLoad': 0.0,
@@ -65,6 +69,7 @@ def test_green_reward_scales_edge_cost(monkeypatch):
     current = {'lat': 44.6400, 'lon': 10.9200}
     neighbor = {'lat': 44.6410, 'lon': 10.9200}
     patient = ea.PATIENT_CONDITIONS['respiratory']
+    distance = ea.haversine_m(current, neighbor)
 
     cost_baseline = ea.calculate_edge_cost(current, neighbor, 0.0, patient, green_reward_scale=1.0)
     cost_high = ea.calculate_edge_cost(
@@ -72,9 +77,14 @@ def test_green_reward_scales_edge_cost(monkeypatch):
         green_reward_scale=ea.tolerance_green_scale(10),
     )
 
-    # Higher tolerance amplifies the green reward (a negative term), so a greener
-    # node has a strictly LOWER edge cost => the algorithm prefers green detours.
+    # Higher tolerance amplifies the green reward (reduces the net penalty), so a
+    # greener node has a strictly LOWER edge cost => the algorithm prefers green
+    # detours.
     assert cost_high < cost_baseline
+    # P0 audit fix: even with the amplified green reward, the arc never drops below
+    # the physical distance (no negative weights).
+    assert cost_high >= distance
+    assert cost_baseline >= distance
 
 
 def test_find_optimal_route_default_tolerance_is_baseline(monkeypatch):

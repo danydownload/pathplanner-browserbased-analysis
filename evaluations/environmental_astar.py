@@ -368,6 +368,18 @@ def apply_preference_poi_adjustment(cost: float, weight: float, distance_m: Opti
     return cost
 
 
+# Mirrors environmentalAStar.js getNeighbors NEIGHBOR_TOLERANCE. Without it two
+# float pitfalls return too few (often a single) neighbor, so the open set drains
+# after the start node and A* never reaches the goal:
+#   1) adjacent rows differ by exactly one lat_step, but accumulated float makes the
+#      diff a sub-ULP larger than lat_radius, so a bare `<=` rejects it;
+#   2) the grid builds lon_step from cos(mid_lat) while this fn computes lon_radius
+#      from cos(node['lat']) — off-centre rows never match.
+# A 1.5x tolerance restores correct 8-connectivity without over-connecting: the
+# next-but-one node is 2 steps away (diff 2*step > 1.5*step) and stays excluded.
+_NEIGHBOR_TOLERANCE = 1.5
+
+
 def get_neighbors(
     node: Dict[str, float],
     grid: List[Dict[str, float]],
@@ -375,8 +387,8 @@ def get_neighbors(
 ) -> List[Dict[str, float]]:
     lat_mpd = 111320.0
     lon_mpd = 111320.0 * math.cos(math.radians(node['lat']))
-    lat_radius = resolution_m / lat_mpd
-    lon_radius = resolution_m / lon_mpd
+    lat_radius = (resolution_m / lat_mpd) * _NEIGHBOR_TOLERANCE
+    lon_radius = (resolution_m / lon_mpd) * _NEIGHBOR_TOLERANCE
     out = []
     for g in grid:
         lat_diff = abs(g['lat'] - node['lat'])
@@ -400,13 +412,21 @@ def calculate_edge_cost(
 
     ``green_reward_scale`` (>=1, from the distance-tolerance slider) amplifies the
     green/nature reward so higher tolerance prefers greener (and thus longer) paths.
+
+    P0 audit fix: the green/POI rewards accumulate into a NET ``penalty`` that is
+    floored at 0, so the edge increment is always ``distance + max(0, penalty)`` —
+    i.e. ALWAYS >= the physical distance and never negative. This keeps the
+    straight-line heuristic admissible/consistent (no negative arc weights), while
+    greener arcs are still cheaper down to the physical-distance floor.
     """
-    cost = current_g + haversine_m(current, neighbor)
+    distance = haversine_m(current, neighbor)
     env = _get_env(neighbor['lat'], neighbor['lon'])
     name = patient.get('name', 'default')
 
     if name == 'default':
-        return cost
+        return current_g + distance
+
+    penalty = 0.0
 
     aq_mult = patient.get('airQualitySensitivity', 1) or 1
     slope_mult = patient.get('slopeSensitivity', 1) or 1
@@ -415,55 +435,55 @@ def calculate_edge_cost(
     hum_mult = patient.get('humiditySensitivity', 1) or 1
 
     aq = env['airQuality']
-    cost += (max(0.0, aq - 4.0) ** 2) * aq_mult
+    penalty += (max(0.0, aq - 4.0) ** 2) * aq_mult
 
     slope = env['slope']
-    cost += (abs(slope) ** 2) * slope_mult / 5.0
+    penalty += (abs(slope) ** 2) * slope_mult / 5.0
 
     noise = env['noise']
-    cost += max(0.0, noise - 3.0) * noise_mult
+    penalty += max(0.0, noise - 3.0) * noise_mult
 
     temp_diff = abs(env['temperature'] - 22.0)
-    cost += temp_diff * temp_mult / 3.0
+    penalty += temp_diff * temp_mult / 3.0
 
     hum_diff = abs(env['humidity'] - 50.0)
-    cost += hum_diff * hum_mult / 10.0
+    penalty += hum_diff * hum_mult / 10.0
 
     if name == 'respiratory':
-        cost += env['trafficDensity'] * aq_mult * 10.0
-        cost -= env['greenVisibility'] * 5.0 * green_reward_scale
+        penalty += env['trafficDensity'] * aq_mult * 10.0
+        penalty -= env['greenVisibility'] * 5.0 * green_reward_scale
     elif name == 'cardiac':
-        cost += (abs(slope) ** 2) * slope_mult / 2.0
-        cost += env['emergencyAccessibility'] * 2.0
+        penalty += (abs(slope) ** 2) * slope_mult / 2.0
+        penalty += env['emergencyAccessibility'] * 2.0
     elif name == 'mobility':
-        cost += (abs(slope) ** 2.5) * slope_mult
-        cost += env['surfaceQuality'] * 15.0
+        penalty += (abs(slope) ** 2.5) * slope_mult
+        penalty += env['surfaceQuality'] * 15.0
     elif name == 'mental':
-        cost += (noise ** 1.5) * noise_mult
-        cost += env['sensoryLoad'] * 2.0
-        cost -= env['greenVisibility'] * 8.0 * green_reward_scale
+        penalty += (noise ** 1.5) * noise_mult
+        penalty += env['sensoryLoad'] * 2.0
+        penalty -= env['greenVisibility'] * 8.0 * green_reward_scale
 
     # Preference-weight adjustments (combined pathology + user preference)
     prefs = preferences or {}
     combined_nature = patient.get('patientNature', 0) + prefs.get('nature', 0)
     if combined_nature and 'greenVisibility' in env:
-        cost -= env['greenVisibility'] * combined_nature * 0.8 * green_reward_scale
+        penalty -= env['greenVisibility'] * combined_nature * 0.8 * green_reward_scale
 
     combined_hospital = patient.get('patientHospital', 0) + prefs.get('hospital', 0)
     if combined_hospital and 'emergencyAccessibility' in env:
-        cost -= env['emergencyAccessibility'] * combined_hospital * 0.8
+        penalty -= env['emergencyAccessibility'] * combined_hospital * 0.8
 
     combined_entertainment = patient.get('patientEntertainment', 0) + prefs.get('entertainment', 0)
     if combined_entertainment and 'noise' in env:
-        cost -= (env['noise'] / 10) * combined_entertainment * 0.8
+        penalty -= (env['noise'] / 10) * combined_entertainment * 0.8
 
     combined_nightlife = patient.get('patientNightlife', 0) + prefs.get('nightlife', 0)
     if combined_nightlife and 'noise' in env:
-        cost -= (env['noise'] / 10) * combined_nightlife * 0.8
+        penalty -= (env['noise'] / 10) * combined_nightlife * 0.8
 
     combined_tourism = patient.get('patientTourism', 0) + prefs.get('tourism', 0)
     if combined_tourism and 'greenVisibility' in env:
-        cost -= env['greenVisibility'] * combined_tourism * 0.8 * green_reward_scale
+        penalty -= env['greenVisibility'] * combined_tourism * 0.8 * green_reward_scale
 
     # Real POI-based preference adjustments (fallback to proxies above when POI data is missing)
     if poi_lists:
@@ -475,33 +495,35 @@ def calculate_edge_cost(
                 return cached_distances.get(category)
             return nearest_poi_distance(neighbor, poi_lists.get(category, []))
 
-        cost = apply_preference_poi_adjustment(
-            cost,
+        penalty = apply_preference_poi_adjustment(
+            penalty,
             patient.get('patientNature', 0) + prefs.get('nature', 0),
             _poi_distance('nature'),
         )
-        cost = apply_preference_poi_adjustment(
-            cost,
+        penalty = apply_preference_poi_adjustment(
+            penalty,
             patient.get('patientHospital', 0) + prefs.get('hospital', 0),
             _poi_distance('hospital'),
         )
-        cost = apply_preference_poi_adjustment(
-            cost,
+        penalty = apply_preference_poi_adjustment(
+            penalty,
             patient.get('patientEntertainment', 0) + prefs.get('entertainment', 0),
             _poi_distance('entertainment'),
         )
-        cost = apply_preference_poi_adjustment(
-            cost,
+        penalty = apply_preference_poi_adjustment(
+            penalty,
             patient.get('patientNightlife', 0) + prefs.get('nightlife', 0),
             _poi_distance('nightlife'),
         )
-        cost = apply_preference_poi_adjustment(
-            cost,
+        penalty = apply_preference_poi_adjustment(
+            penalty,
             patient.get('patientTourism', 0) + prefs.get('tourism', 0),
             _poi_distance('tourism'),
         )
 
-    return cost
+    # P0 audit fix: floor the net penalty at 0 so the arc is never below the
+    # physical distance and never negative.
+    return current_g + distance + max(0.0, penalty)
 
 
 def estimate_heuristic(node: Dict[str, float], goal: Dict[str, float]) -> float:
@@ -520,6 +542,42 @@ def reconstruct_path(came_from: Dict[str, Dict[str, float]], current: Dict[str, 
         path.insert(0, current)
         cid = _node_id(current)
     return path
+
+
+_ENDPOINT_SNAP_TOLERANCE_M = 0.5
+
+
+def force_exact_endpoints(
+    path: List[Dict[str, float]],
+    start: Dict[str, float],
+    goal: Dict[str, float],
+) -> List[Dict[str, float]]:
+    """Force the EXACT requested A (start) / B (goal) as the first/last path nodes.
+
+    A* runs on a free grid whose nodes never coincide with the real endpoints, and
+    goal is "reached" at any grid node within ``_GOAL_RADIUS_M`` of B. Without this
+    snap the corridor would begin/end on an off-target grid node, so the downstream
+    ORS/Mapbox snapping would route from/to the wrong point. We snap an endpoint
+    already within 0.5 m to the exact coordinate, otherwise append/prepend the exact
+    endpoint so the corridor is completed to A/B.
+    """
+    start_node = {'lat': start['lat'], 'lon': start['lon']}
+    goal_node = {'lat': goal['lat'], 'lon': goal['lon']}
+    if not path:
+        return [start_node, goal_node]
+
+    result = list(path)
+    if haversine_m(result[0], start_node) > _ENDPOINT_SNAP_TOLERANCE_M:
+        result.insert(0, start_node)
+    else:
+        result[0] = start_node
+
+    if haversine_m(result[-1], goal_node) > _ENDPOINT_SNAP_TOLERANCE_M:
+        result.append(goal_node)
+    else:
+        result[-1] = goal_node
+
+    return result
 
 
 def find_optimal_route(
@@ -551,18 +609,19 @@ def find_optimal_route(
     poi_lists = get_poi_lists_for_grid(grid)
     poi_distances = precompute_poi_distances(grid, poi_lists) if poi_lists else None
 
+    # Lazy-deletion binary heap: a node may appear multiple times with different
+    # priorities; the stale (already-expanded) copies are skipped on pop. This is
+    # the correct decrease-key for heapq, which has no in-place key update.
     open_heap: List[Tuple[float, int, Dict[str, float]]] = []
     counter = 0
     g_score: Dict[str, float] = {}
     f_score: Dict[str, float] = {}
     came_from: Dict[str, Dict[str, float]] = {}
-    in_open: Dict[str, bool] = {}
 
     sid = _node_id(start)
     g_score[sid] = 0.0
     f_score[sid] = estimate_heuristic(start, goal)
     heapq.heappush(open_heap, (f_score[sid], counter, start))
-    in_open[sid] = True
     counter += 1
 
     closed: set = set()
@@ -574,11 +633,17 @@ def find_optimal_route(
     while open_heap and expansions < _MAX_EXPANSIONS:
         _, _, current = heapq.heappop(open_heap)
         cid = _node_id(current)
-        in_open.pop(cid, None)
+        # Skip stale heap entries: a node re-pushed with a better priority leaves
+        # its worse copy behind, and once expanded (in `closed`) any later pop of
+        # it is obsolete. Skipping before counting keeps `expansions` = real work.
+        if cid in closed:
+            continue
         expansions += 1
 
         if is_goal_reached(current, goal):
-            path = reconstruct_path(came_from, current)
+            # Force the EXACT A/B endpoints: goal is reached at a grid node within
+            # _GOAL_RADIUS_M of B, so snap/append B (and guarantee A).
+            path = force_exact_endpoints(reconstruct_path(came_from, current), start, goal)
             return {
                 'path': path,
                 'astar_cost': g_score[cid],
@@ -601,16 +666,19 @@ def find_optimal_route(
                 came_from[nid] = current
                 g_score[nid] = tentative
                 f_score[nid] = tentative + estimate_heuristic(neighbor, goal)
-                if nid not in in_open:
-                    heapq.heappush(open_heap, (f_score[nid], counter, neighbor))
-                    in_open[nid] = True
-                    counter += 1
+                # Correct decrease-key for a lazy-deletion heap: ALWAYS push the
+                # improved entry. The previous `if nid not in in_open` guard left
+                # the heap holding only the OLD (worse) priority, so the better
+                # path was recorded in g_score/came_from but never re-prioritized
+                # for expansion — breaking A*'s ordering.
+                heapq.heappush(open_heap, (f_score[nid], counter, neighbor))
+                counter += 1
 
                 if tentative < best_cost and haversine_m(neighbor, goal) < direct_dist * 0.2:
                     best_cost = tentative
                     best_partial = reconstruct_path(came_from, neighbor)
 
-    path = best_partial or [start, goal]
+    path = force_exact_endpoints(best_partial or [start, goal], start, goal)
     return {
         'path': path,
         'astar_cost': best_cost if best_partial else None,
