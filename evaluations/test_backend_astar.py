@@ -44,6 +44,7 @@ def _neutral_env(*args, **kwargs):
 
 
 def test_backend_astar_generates_real_street_graph_route(monkeypatch):
+    monkeypatch.setattr(ba, 'GRAPHHOPPER_URL', '')
     monkeypatch.setattr(ba, 'fetch_street_graph', lambda *args, **kwargs: _graph_payload(kwargs.get('mode', 'walking')))
     monkeypatch.setattr(ba, 'fetch_named_pois', lambda *args, **kwargs: {'pois': [], 'source': 'mock'})
     monkeypatch.setattr(ba, '_fetch_backend_environment_data', lambda lat, lon: _neutral_env())
@@ -70,6 +71,56 @@ def test_backend_astar_generates_real_street_graph_route(monkeypatch):
     assert route['data_sources']['airQuality'] == 'test'
     assert 'street_graph_and_pois' in payload['parallelism']['parallelized']
     assert 'priority_queue_astar_expansion' in payload['parallelism']['sequential']
+
+
+def test_backend_astar_uses_graphhopper_when_configured(monkeypatch):
+    monkeypatch.setattr(ba, 'GRAPHHOPPER_URL', 'http://graphhopper.test')
+    monkeypatch.setattr(ba, '_graphhopper_route_payload', lambda *args, **kwargs: {
+        'paths': [
+            {
+                'distance': 180.0,
+                'time': 120000,
+                'points': {
+                    'coordinates': [
+                        [10.0000, 44.0000],
+                        [10.0005, 44.0004],
+                        [10.0010, 44.0010],
+                    ],
+                },
+            },
+            {
+                'distance': 210.0,
+                'time': 150000,
+                'points': {
+                    'coordinates': [
+                        [10.0000, 44.0000],
+                        [10.0000, 44.0008],
+                        [10.0010, 44.0010],
+                    ],
+                },
+            },
+        ],
+    })
+    monkeypatch.setattr(ba, 'fetch_street_graph', lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('Overpass street graph should not be used')))
+    monkeypatch.setattr(ba, 'fetch_named_pois', lambda *args, **kwargs: {'pois': [], 'source': 'mock'})
+    monkeypatch.setattr(ba, '_fetch_backend_environment_data', lambda lat, lon: _neutral_env())
+
+    payload = ba.generate_backend_astar_routes(
+        44.0000,
+        10.0000,
+        44.0010,
+        10.0010,
+        condition='respiratory',
+        transport_mode='walking',
+        alternatives=2,
+    )
+
+    assert payload['source'] == 'graphhopper_candidate_routing'
+    assert payload['count'] == 2
+    assert payload['routes'][0]['routing_basis'] == 'graphhopper_osm'
+    assert payload['routes'][0]['path'][0] == {'lat': 44.0, 'lon': 10.0}
+    assert payload['routes'][0]['path'][-1] == {'lat': 44.001, 'lon': 10.001}
+    assert payload['street_graph']['source'] == 'GraphHopper local OSM graph'
 
 
 def test_backend_astar_view_returns_503_when_real_osm_unavailable(monkeypatch):

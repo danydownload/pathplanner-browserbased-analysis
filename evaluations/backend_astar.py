@@ -16,6 +16,8 @@ import os
 import time
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+import requests
+
 from .environmental_astar import (
     PATIENT_CONDITIONS,
     apply_preference_poi_adjustment,
@@ -44,6 +46,10 @@ BACKEND_ASTAR_MAX_ALTERNATIVE_ATTEMPTS = int(os.getenv('BACKEND_ASTAR_MAX_ALT_AT
 BACKEND_ASTAR_OVERPASS_MAX_MIRRORS = int(os.getenv('BACKEND_ASTAR_OVERPASS_MAX_MIRRORS', '1'))
 BACKEND_ASTAR_STREET_TIMEOUT_SECONDS = float(os.getenv('BACKEND_ASTAR_STREET_TIMEOUT_SECONDS', '6'))
 BACKEND_ASTAR_POI_TIMEOUT_SECONDS = float(os.getenv('BACKEND_ASTAR_POI_TIMEOUT_SECONDS', '4'))
+GRAPHHOPPER_URL = (os.getenv('GRAPHHOPPER_URL') or '').rstrip('/')
+GRAPHHOPPER_API_KEY = os.getenv('GRAPHHOPPER_API_KEY') or ''
+GRAPHHOPPER_TIMEOUT_SECONDS = float(os.getenv('GRAPHHOPPER_TIMEOUT_SECONDS', '8'))
+GRAPHHOPPER_FORCE = os.getenv('GRAPHHOPPER_FORCE', '').lower() in ('1', 'true', 'yes')
 
 POI_CATEGORIES = ('nature', 'entertainment', 'nightlife', 'tourism', 'hospital')
 
@@ -54,6 +60,15 @@ def normalize_transport_mode(mode: Optional[str]) -> str:
     if mode == 'cycling':
         return 'cycling'
     return 'walking'
+
+
+def _graphhopper_profile(mode: str) -> str:
+    normalized = normalize_transport_mode(mode)
+    if normalized == 'car':
+        return os.getenv('GRAPHHOPPER_PROFILE_CAR', 'car')
+    if normalized == 'cycling':
+        return os.getenv('GRAPHHOPPER_PROFILE_CYCLING', 'bike')
+    return os.getenv('GRAPHHOPPER_PROFILE_WALKING', 'foot')
 
 
 def _street_node_id(node: Dict[str, Any]) -> str:
@@ -651,6 +666,213 @@ def _simplify_waypoints(path: Sequence[Dict[str, float]], max_points: int = 8) -
     return [{'lat': p['lat'], 'lon': p['lon']} for p in out]
 
 
+def _graphhopper_route_payload(
+    start: Dict[str, float],
+    goal: Dict[str, float],
+    mode: str,
+    alternatives: int,
+    distance_tolerance: float,
+) -> Optional[Dict[str, Any]]:
+    if not GRAPHHOPPER_URL:
+        return None
+
+    params = [
+        ('point', f"{start['lat']},{start['lon']}"),
+        ('point', f"{goal['lat']},{goal['lon']}"),
+        ('profile', _graphhopper_profile(mode)),
+        ('locale', 'en'),
+        ('calc_points', 'true'),
+        ('points_encoded', 'false'),
+        ('instructions', 'false'),
+    ]
+    if alternatives and alternatives > 1:
+        params.extend([
+            ('algorithm', 'alternative_route'),
+            ('ch.disable', 'true'),
+            ('alternative_route.max_paths', str(max(1, min(int(alternatives), 5)))),
+            ('alternative_route.max_weight_factor', str(1.15 + max(0.0, min(distance_tolerance, 10.0) - 1.0) * 0.08)),
+            ('alternative_route.max_share_factor', '0.75'),
+        ])
+    if GRAPHHOPPER_API_KEY:
+        params.append(('key', GRAPHHOPPER_API_KEY))
+
+    try:
+        response = requests.get(
+            f'{GRAPHHOPPER_URL}/route',
+            params=params,
+            timeout=GRAPHHOPPER_TIMEOUT_SECONDS,
+        )
+        if not response.ok:
+            print(f'[graphhopper] HTTP {response.status_code}: {response.text[:160]}')
+            return None
+        return response.json()
+    except Exception as exc:
+        print(f'[graphhopper] unavailable: {exc}')
+        return None
+
+
+def _graphhopper_path_points(path_payload: Dict[str, Any]) -> List[Dict[str, float]]:
+    points = path_payload.get('points') or {}
+    coordinates = points.get('coordinates') if isinstance(points, dict) else None
+    if not isinstance(coordinates, list):
+        return []
+    out = []
+    for coord in coordinates:
+        if not isinstance(coord, list) or len(coord) < 2:
+            continue
+        lon = _safe_float(coord[0])
+        lat = _safe_float(coord[1])
+        if lat is not None and lon is not None:
+            out.append({'lat': lat, 'lon': lon})
+    return out
+
+
+def _score_candidate_path(
+    path: Sequence[Dict[str, float]],
+    patient: Dict[str, Any],
+    preferences: Optional[Dict[str, float]],
+    poi_lists: Optional[Dict[str, List[Tuple[float, float]]]],
+    env_samples: Sequence[Dict[str, Any]],
+    green_scale: float,
+    base_distance: float,
+) -> float:
+    if not path:
+        return float('inf')
+    total = max(0.0, base_distance)
+    for index, point in enumerate(path):
+        env = _nearest_env(point, env_samples)
+        penalty = 0.0
+        if env and patient.get('name') != 'default':
+            aq = _safe_float(env.get('airQuality'))
+            if aq is not None:
+                penalty += (max(0.0, aq - 4.0) ** 2) * (patient.get('airQualitySensitivity') or 1)
+            slope = _safe_float(env.get('slope'))
+            if slope is not None:
+                penalty += (abs(slope) ** 2) * (patient.get('slopeSensitivity') or 1) / 5.0
+        if poi_lists:
+            for category, pois in poi_lists.items():
+                patient_key = 'patient' + category.capitalize()
+                weight = (patient.get(patient_key) or 0) + ((preferences or {}).get(category) or 0)
+                if not weight or not pois:
+                    continue
+                nearest = min(haversine_m(point, {'lat': lat, 'lon': lon}) for lat, lon in pois)
+                penalty = apply_preference_poi_adjustment(penalty, weight * green_scale, nearest)
+        total += penalty * max(0.1, index / max(1, len(path)))
+    # Candidate ranking may reward clinically useful detours, but never so much
+    # that a route becomes implausibly "free" compared with its physical length.
+    return max(base_distance * 0.55, total)
+
+
+def _generate_graphhopper_routes(
+    start: Dict[str, float],
+    goal: Dict[str, float],
+    condition: str,
+    patient: Dict[str, Any],
+    preferences: Optional[Dict[str, float]],
+    distance_tolerance: float,
+    mode: str,
+    alternatives: int,
+    bbox: Dict[str, float],
+    active_categories: Sequence[str],
+    started: float,
+) -> Optional[Dict[str, Any]]:
+    payload = _graphhopper_route_payload(start, goal, mode, alternatives, distance_tolerance)
+    if not payload:
+        return None
+
+    graphhopper_paths = payload.get('paths')
+    if not isinstance(graphhopper_paths, list) or not graphhopper_paths:
+        return None
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+    try:
+        poi_future = executor.submit(_fetch_poi_lists_parallel, bbox, active_categories)
+        env_future = executor.submit(_prefetch_environment_samples, start, goal)
+        input_deadline = time.perf_counter() + BACKEND_ASTAR_INPUT_TIMEOUT_SECONDS
+        poi_lists = poi_future.result(timeout=BACKEND_ASTAR_INPUT_TIMEOUT_SECONDS)
+        remaining = max(0.1, input_deadline - time.perf_counter())
+        env_samples = env_future.result(timeout=remaining)
+    except concurrent.futures.TimeoutError as exc:
+        raise TimeoutError('GraphHopper candidate scoring lookup timed out') from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+    data_sources = _aggregate_env_sources(env_samples)
+    if poi_lists:
+        for category, pois in poi_lists.items():
+            if pois:
+                data_sources[f'poi_{category}'] = 'OpenStreetMap-Overpass'
+    data_sources['street_graph'] = 'GraphHopper local OSM graph'
+
+    green_scale = tolerance_green_scale(distance_tolerance)
+    routes = []
+    signatures: Set[str] = set()
+    for raw in graphhopper_paths[:max(1, min(int(alternatives or 1), 5))]:
+        path = _graphhopper_path_points(raw)
+        if len(path) < 2:
+            continue
+        path[0] = {'lat': start['lat'], 'lon': start['lon']}
+        path[-1] = {'lat': goal['lat'], 'lon': goal['lon']}
+        signature = _path_signature(path, precision=5)
+        if signature in signatures:
+            continue
+        signatures.add(signature)
+        distance = _safe_float(raw.get('distance')) or calculate_path_length(path)
+        cost = _score_candidate_path(
+            path,
+            patient,
+            preferences,
+            poi_lists,
+            env_samples,
+            green_scale,
+            distance,
+        )
+        routes.append({
+            'name': 'GraphHopper Environmental Route' if not routes else f'GraphHopper Environmental Alternative {len(routes) + 1}',
+            'routing_basis': 'graphhopper_osm',
+            'transport_mode': mode,
+            'path': path,
+            'waypoints': _simplify_waypoints(path),
+            'astar_cost': cost,
+            'goal_reached': True,
+            'expansions': 0,
+            'signature': signature,
+            'path_node_count': len(path),
+            'distance_m': round(distance),
+            'duration_s': round((_safe_float(raw.get('time')) or 0) / 1000),
+            'env_score': round(max(0.0, 100.0 - cost / 100.0), 1),
+            'data_sources': data_sources,
+        })
+
+    routes.sort(key=lambda route: route['astar_cost'])
+    if not routes:
+        return None
+
+    return {
+        'source': 'graphhopper_candidate_routing',
+        'mode': mode,
+        'condition': patient.get('name', condition),
+        'bbox': bbox,
+        'routes': routes,
+        'count': len(routes),
+        'street_graph': {
+            'source': 'GraphHopper local OSM graph',
+            'count': {'routes': len(graphhopper_paths)},
+        },
+        'parallelism': {
+            'io_workers': BACKEND_ASTAR_IO_WORKERS,
+            'env_workers': BACKEND_ASTAR_ENV_WORKERS,
+            'parallelized': ['graphhopper_routes', 'poi_categories', 'environment_seed', 'candidate_scoring'],
+            'sequential': ['graphhopper_internal_routing'],
+        },
+        'timing_ms': round((time.perf_counter() - started) * 1000),
+    }
+
+
+def calculate_path_length(path: Sequence[Dict[str, float]]) -> float:
+    return sum(haversine_m(path[i - 1], path[i]) for i in range(1, len(path)))
+
+
 def generate_backend_astar_routes(
     start_lat: float,
     start_lon: float,
@@ -669,6 +891,24 @@ def generate_backend_astar_routes(
     patient = PATIENT_CONDITIONS.get(condition, PATIENT_CONDITIONS['respiratory'])
     bbox = _route_bbox(start, goal, distance_tolerance)
     active_categories = _active_poi_categories(patient, preferences)
+
+    graphhopper_payload = _generate_graphhopper_routes(
+        start,
+        goal,
+        condition,
+        patient,
+        preferences,
+        distance_tolerance,
+        mode,
+        alternatives,
+        bbox,
+        active_categories,
+        started,
+    )
+    if graphhopper_payload is not None:
+        return graphhopper_payload
+    if GRAPHHOPPER_URL and GRAPHHOPPER_FORCE:
+        raise RuntimeError('GraphHopper is configured but did not return usable routes')
 
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
     try:
