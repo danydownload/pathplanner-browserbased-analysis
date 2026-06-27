@@ -121,7 +121,15 @@ function getRouteLineStyle(route, isSelected) {
 }
 
 function getRouteLineLayer(route) {
-    if (!route || !route.routingControl) {
+    if (!route) {
+        return null;
+    }
+
+    if (route.polylineLayer) {
+        return route.polylineLayer;
+    }
+
+    if (!route.routingControl) {
         return null;
     }
 
@@ -133,6 +141,7 @@ function getRouteLineLayer(route) {
 }
 
 const managedRoutingControls = new Set();
+const managedRouteLayers = new Set();
 let routingSessionCounter = 0;
 
 function registerRoutingControl(control) {
@@ -164,6 +173,29 @@ function addRoutingControlToMap(control, map, currentRouting) {
         }
     } catch (error) {
         console.warn('[addRoutingControlToMap] Error adding route control:', error);
+    }
+}
+
+function addRouteLayerToMap(route, map, currentRouting) {
+    const layer = getRouteLineLayer(route);
+    if (!layer || !map) {
+        return;
+    }
+    try {
+        if (!map.hasLayer(layer)) {
+            layer.addTo(map);
+        }
+        managedRouteLayers.add(layer);
+        if (currentRouting) {
+            if (!Array.isArray(currentRouting.routeLayers)) {
+                currentRouting.routeLayers = [];
+            }
+            if (!currentRouting.routeLayers.includes(layer)) {
+                currentRouting.routeLayers.push(layer);
+            }
+        }
+    } catch (error) {
+        console.warn('[addRouteLayerToMap] Error adding route layer:', error);
     }
 }
 
@@ -313,6 +345,7 @@ function clearDirectionsSidebarRouteUi() {
 function clearCurrentRoutingLayers(map, currentRouting, options = {}) {
     const { clearUi = true, clearWaypoints = true } = options;
     const controls = new Set(managedRoutingControls);
+    const routeLayers = new Set(managedRouteLayers);
 
     if (currentRouting?.routingControl) {
         controls.add(currentRouting.routingControl);
@@ -320,11 +353,19 @@ function clearCurrentRoutingLayers(map, currentRouting, options = {}) {
     if (Array.isArray(currentRouting?.routingControls)) {
         currentRouting.routingControls.forEach(control => controls.add(control));
     }
+    if (Array.isArray(currentRouting?.routeLayers)) {
+        currentRouting.routeLayers.forEach(layer => routeLayers.add(layer));
+    }
 
     controls.forEach(control => removeRoutingControlArtifacts(control, map, { clearWaypoints }));
+    routeLayers.forEach(layer => {
+        removeLayerFromMap(layer, map, 'clearCurrentRoutingLayers');
+        managedRouteLayers.delete(layer);
+    });
     if (currentRouting) {
         currentRouting.routingControl = null;
         currentRouting.routingControls = [];
+        currentRouting.routeLayers = [];
     }
 
     if (map) {
@@ -506,6 +547,8 @@ function getManeuverLabel(instruction) {
         Rotary: 'Rotonda',
         Merge: 'Immissione',
         Fork: 'Bivio',
+        KeepLeft: 'Mantieni sinistra',
+        KeepRight: 'Mantieni destra',
         OnRamp: 'Rampa',
         OffRamp: 'Uscita',
         DestinationReached: 'Arrivo',
@@ -1848,7 +1891,25 @@ function shouldReplaceDuplicateRoute(existingRoute, candidateRoute) {
 }
 
 function removeRouteControlFromMap(route, map, currentRouting) {
-    if (!route || !route.routingControl) {
+    if (!route) {
+        return;
+    }
+
+    const layer = getRouteLineLayer(route);
+    if (layer && route.polylineLayer) {
+        removeLayerFromMap(layer, map, 'removeRouteControlFromMap');
+        managedRouteLayers.delete(layer);
+        if (currentRouting && Array.isArray(currentRouting.routeLayers)) {
+            const layerIndex = currentRouting.routeLayers.indexOf(layer);
+            if (layerIndex > -1) {
+                currentRouting.routeLayers.splice(layerIndex, 1);
+            }
+        }
+        route.removedFromMap = true;
+        return;
+    }
+
+    if (!route.routingControl) {
         return;
     }
 
@@ -3004,14 +3065,18 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
 
     // Pre-process to add only the selected route's control to the map initially
     routes.forEach((route, index) => {
-        if (route.routingControl) {
+        if (route.routingControl || route.polylineLayer) {
             try {
                 const routeLine = getRouteLineLayer(route);
                 syncRoutingControlLineOptions(route, index === initialSelectedIndex);
                 if (index === initialSelectedIndex) {
                     console.log(`[setupRouteControlPanel] Initially adding selected route line ${index}: ${route.routeName || route.name}`);
-                    addRoutingControlToMap(route.routingControl, map, currentRouting);
-                    if (route.routingControl._container) {
+                    if (route.routingControl) {
+                        addRoutingControlToMap(route.routingControl, map, currentRouting);
+                    } else {
+                        addRouteLayerToMap(route, map, currentRouting);
+                    }
+                    if (route.routingControl?._container) {
                         $(route.routingControl._container).hide();
                     }
                     if (routeLine) {
@@ -3226,11 +3291,18 @@ function setupRouteControlPanel(map, routes, currentRouting, currentPatientCondi
 
                 routes.forEach((r, i) => {
                     r.isBest = (i === selectedIdx);
-                    if (r.routingControl) {
+                    if (r.routingControl || r.polylineLayer) {
                         try {
                             if (i === selectedIdx) {
                                 console.log(`[setupRouteControlPanel] SHOWING selected route: ${i} (${r.routeName || r.name})`);
                                 syncRoutingControlLineOptions(r, true);
+                                if (r.polylineLayer && !r.routingControl) {
+                                    addRouteLayerToMap(r, map, currentRouting);
+                                    applyRouteLineStyle(r, true);
+                                    renderDirectionsSidebar(r);
+                                    r.removedFromMap = false;
+                                    return;
+                                }
                                 if (r.originalWaypoints && r.originalWaypoints.length > 0) {
                                     r.routingControl.getPlan().setWaypoints(r.originalWaypoints);
                                 } else {
@@ -3383,7 +3455,8 @@ function withTimeout(promise, ms, fallbackValue, label) {
 async function route(
     currentRouting = {
         routingControl: null,
-        routingControls: []
+        routingControls: [],
+        routeLayers: []
     },
     currentPreferences = MasterPreferences.DEFAULT,
     currentPatientCondition = MasterPatientCondition.DEFAULT,
@@ -4352,28 +4425,45 @@ async function routeWithPrecalculatedRoutes(
                 }
             }
 
-	            // Create routing control
-                const initialRouteStyle = getRouteLineStyles({ isDirectRoute: false }, i === 0);
+            const backendRenderedRoute = route.routingEngine === 'backend_environmental_astar' &&
+                Array.isArray(route.coordinates) &&
+                route.coordinates.length >= 2;
+            const routeCoordinates = backendRenderedRoute
+                ? route.coordinates
+                    .map(point => L.latLng(point.lat, typeof point.lng !== 'undefined' ? point.lng : point.lon))
+                    .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+                : [];
 
-	            const routingControl = L.Routing.control({
+	            // Backend Environmental A* routes already contain final OSM geometry
+                // and instructions. Render them as a plain Leaflet polyline so the
+                // frontend does not re-route or inject intermediate "Tappa" points.
+                const initialRouteStyle = getRouteLineStyle({ ...route, isDirectRoute: false }, i === 0);
+                const polylineLayer = backendRenderedRoute && routeCoordinates.length >= 2
+                    ? L.polyline(routeCoordinates, initialRouteStyle)
+                    : null;
+
+	            const routingControl = backendRenderedRoute
+                ? null
+                : L.Routing.control({
 	                waypoints: waypoints,
 	                routeWhileDragging: false,
 	                fitSelectedRoutes: true,
                     show: false,
 	                showAlternatives: false,
 	                lineOptions: {
-	                    styles: initialRouteStyle,
+	                    styles: getRouteLineStyles({ isDirectRoute: false }, i === 0),
 	                    missingRouteTolerance: 100
 	                },
-                router: createMapboxRouter(additionalInfos.transportMode || 'walking'),
-                createMarker: function() { return null; }
-            });
+                    router: createMapboxRouter(additionalInfos.transportMode || 'walking'),
+                    createMarker: function() { return null; }
+                });
 
             // PP-ASTAR-FIX: hard detour-cap guard on the FINAL street-snapped route.
             // The A* grid cap only bounds the raw grid path; Mapbox snapping through
             // via-points can still inflate the rendered route. If the returned route
             // exceeds RENDER_DETOUR_CAP × direct, re-route start→goal directly (once)
             // so the user never sees an absurd detour/backtracking polyline.
+            if (routingControl) {
             routingControl.on('routesfound', function (ev) {
                 if (!isActiveRoutingSession(currentRouting, routingSessionId)) {
                     console.warn(`[routeWithPrecalculatedRoutes] route ${i + 1} ignoring stale routesfound from old run.`);
@@ -4446,6 +4536,7 @@ async function routeWithPrecalculatedRoutes(
 
                 applyAcceptedMapboxRoute(r, acceptedWaypoints, { isDirectFallback });
             });
+            }
 
             // DO NOT add to map here. setupRouteControlPanel will handle it.
             // DO NOT push to currentRouting.routingControls here. setupRouteControlPanel will handle it.
@@ -4475,6 +4566,7 @@ async function routeWithPrecalculatedRoutes(
                 name: route.name || `Route ${i+1}`,
                 description: route.description || "",
                 routingControl: routingControl,
+                polylineLayer: polylineLayer,
                 score: normalizedScore, // This is the normalized score for general use
                 environmentScore: normalizedScore, // Also use normalized for consistency in other parts
                 rawAStarScore: originalAStarCost, // Store the original A* cost for panel display
@@ -4486,6 +4578,7 @@ async function routeWithPrecalculatedRoutes(
                 waypoints: waypoints, // These are L.LatLng objects already
                 originalWaypoints: waypoints, // Store L.LatLng waypoints here as well
                 coordinates: route.coordinates || waypoints.map(wp => ({ lat: wp.lat, lng: wp.lng })),
+                instructions: Array.isArray(route.instructions) ? route.instructions : [],
                 // TODO2: derive the real A→B length from the planner-propagated value
                 // or the route geometry instead of a hardcoded 1 km. Mapbox later
                 // overwrites this with summary.totalDistance once the street route

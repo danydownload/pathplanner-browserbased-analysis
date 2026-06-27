@@ -74,6 +74,23 @@ class BackendAstarGeometryTests(TestCase):
                 },
                 'distance': 1600,
                 'time': 1000000,
+                'instructions': [
+                    {
+                        'sign': 0,
+                        'text': 'Continua su Via Emilia Est',
+                        'street_name': 'Via Emilia Est',
+                        'distance': 1200,
+                        'time': 800000,
+                        'interval': [0, 1],
+                    },
+                    {
+                        'sign': 4,
+                        'text': 'Arrivo alla destinazione',
+                        'distance': 0,
+                        'time': 0,
+                        'interval': [2, 2],
+                    },
+                ],
             }]
         }
 
@@ -102,6 +119,8 @@ class BackendAstarGeometryTests(TestCase):
         self.assertEqual(result['source'], 'graphhopper_candidate_routing')
         self.assertEqual(len(result['routes']), 1)
         self.assertEqual(result['routes'][0]['data_sources']['environment'], 'timed out or unavailable')
+        self.assertEqual(result['routes'][0]['instructions'][0]['type'], 'Continue')
+        self.assertIn('Via Emilia Est', result['routes'][0]['instructions'][0]['text'])
 
 
 @override_settings(OPENAQ_API_KEY='test-openaq-key')

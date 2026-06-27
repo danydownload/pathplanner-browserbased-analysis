@@ -116,6 +116,7 @@ function convertBackendAstarRoutesToPlannerFormat(payload, patientCondition, tra
             waypoints: routePoints.map((p) => L.latLng(p.lat, p.lon)),
             environmentalScore: Number.isFinite(route.astar_cost) ? route.astar_cost : index,
             coordinates: pathPoints.map((p) => ({ lat: p.lat, lng: p.lon })),
+            instructions: Array.isArray(route.instructions) ? route.instructions : [],
             environmentDataList: [],
             transportMode: route.transport_mode || transportMode,
             length: pathLength,
@@ -396,6 +397,7 @@ export function convertToRoutesFormat(optimizedRoutes) {
             endPoint: endPoint,
             transportMode: route.transportMode,
             environmentDataList: route.environmentDataList || [],
+            instructions: Array.isArray(route.instructions) ? route.instructions : [],
             isBest: route.isBest || false,
             // TODO2: carry the computed A→B length so the route card shows the real
             // distance instead of the hardcoded 1 km fallback downstream. Without

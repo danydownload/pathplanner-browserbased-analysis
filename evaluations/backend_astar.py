@@ -982,10 +982,10 @@ def _graphhopper_route_payload(
         ('point', f"{start['lat']},{start['lon']}"),
         ('point', f"{goal['lat']},{goal['lon']}"),
         ('profile', _graphhopper_profile(mode)),
-        ('locale', 'en'),
+        ('locale', 'it'),
         ('calc_points', 'true'),
         ('points_encoded', 'false'),
-        ('instructions', 'false'),
+        ('instructions', 'true'),
     ]
     if alternatives and alternatives > 1:
         params.extend([
@@ -1027,6 +1027,78 @@ def _graphhopper_path_points(path_payload: Dict[str, Any]) -> List[Dict[str, flo
         if lat is not None and lon is not None:
             out.append({'lat': lat, 'lon': lon})
     return out
+
+
+def _graphhopper_instruction_type(sign: Optional[int]) -> Tuple[str, str]:
+    signs = {
+        -8: ('UTurn', 'left'),
+        -7: ('KeepLeft', 'left'),
+        -6: ('LeaveRoundabout', ''),
+        -3: ('SharpLeft', 'left'),
+        -2: ('Left', 'left'),
+        -1: ('SlightLeft', 'left'),
+        0: ('Continue', 'straight'),
+        1: ('SlightRight', 'right'),
+        2: ('Right', 'right'),
+        3: ('SharpRight', 'right'),
+        4: ('DestinationReached', ''),
+        5: ('WaypointReached', ''),
+        6: ('Roundabout', ''),
+        7: ('KeepRight', 'right'),
+        8: ('UTurn', 'right'),
+    }
+    return signs.get(sign or 0, ('Continue', 'straight'))
+
+
+def _graphhopper_instructions(path_payload: Dict[str, Any], path: Sequence[Dict[str, float]]) -> List[Dict[str, Any]]:
+    raw_instructions = path_payload.get('instructions')
+    if not isinstance(raw_instructions, list):
+        raw_instructions = []
+
+    out: List[Dict[str, Any]] = []
+    for index, instruction in enumerate(raw_instructions):
+        if not isinstance(instruction, dict):
+            continue
+        sign = _safe_float(instruction.get('sign'))
+        type_name, modifier = _graphhopper_instruction_type(int(sign) if sign is not None else None)
+        interval = instruction.get('interval') if isinstance(instruction.get('interval'), list) else []
+        from_index = int(interval[0]) if len(interval) > 0 and isinstance(interval[0], int) else None
+        to_index = int(interval[1]) if len(interval) > 1 and isinstance(interval[1], int) else None
+        out.append({
+            'type': type_name,
+            'modifier': modifier,
+            'text': instruction.get('text') or instruction.get('street_name') or '',
+            'road': instruction.get('street_name') or '',
+            'distance': round(_safe_float(instruction.get('distance')) or 0),
+            'time': round((_safe_float(instruction.get('time')) or 0) / 1000),
+            'sign': int(sign) if sign is not None else 0,
+            'interval': [from_index, to_index] if from_index is not None and to_index is not None else None,
+        })
+
+    if out:
+        return out
+
+    total = calculate_path_length(path)
+    return [
+        {
+            'type': 'Head',
+            'modifier': 'straight',
+            'text': 'Parti sul percorso selezionato',
+            'road': '',
+            'distance': round(total),
+            'time': 0,
+            'interval': [0, max(0, len(path) - 1)],
+        },
+        {
+            'type': 'DestinationReached',
+            'modifier': '',
+            'text': 'Sei arrivato alla destinazione',
+            'road': '',
+            'distance': 0,
+            'time': 0,
+            'interval': [max(0, len(path) - 1), max(0, len(path) - 1)],
+        },
+    ]
 
 
 def _score_candidate_path(
@@ -1235,6 +1307,7 @@ def _generate_graphhopper_routes(
         path[0] = {'lat': start['lat'], 'lon': start['lon']}
         path[-1] = {'lat': goal['lat'], 'lon': goal['lon']}
         distance = calculate_path_length(path) or (_safe_float(raw.get('distance')) or 0)
+        instructions = _graphhopper_instructions(raw, path)
         signature = _path_signature(path, precision=5)
         if signature in signatures or _is_similar_route(path, distance, routes):
             continue
@@ -1264,6 +1337,7 @@ def _generate_graphhopper_routes(
             'transport_mode': mode,
             'path': path,
             'waypoints': _simplify_waypoints(path),
+            'instructions': instructions,
             'astar_cost': cost,
             'goal_reached': True,
             'expansions': 0,

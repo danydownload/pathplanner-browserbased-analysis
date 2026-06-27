@@ -372,6 +372,8 @@ Additional backend changes:
   when they return almost to the same point after a short detour;
 - frontend waypoints are simplified with minimum spacing, while the full backend
   geometry is preserved for displayed route coordinates;
+- GraphHopper instructions are requested by the backend and returned with each
+  candidate route;
 - route scoring includes walkability penalties when local walkability rows are
   available.
 
@@ -390,8 +392,13 @@ Changes:
 
 - backend `route.explanation` is preserved in frontend route objects;
 - backend `route.path` is now used as the authoritative displayed geometry;
-- backend `route.waypoints` is used only as a small set of guide points for the
-  frontend router, reducing 0 m intermediate "tappa" instructions;
+- backend `route.instructions` is now used as the authoritative turn-by-turn
+  list for backend Environmental A* routes;
+- backend Environmental A* routes render as plain Leaflet polylines, not as
+  frontend `L.Routing.control` routes, so the browser no longer asks Mapbox or
+  Leaflet Routing Machine to re-route them;
+- backend `route.waypoints` remains in the payload for metadata/debugging, but
+  it is no longer treated as frontend stopover instructions for backend routes;
 - route cards can show compact summaries such as average air quality, average
   slope, nearest green/care POIs, and walkability penalty;
 - route cards can show source summaries such as GraphHopper, local OSM POIs,
