@@ -4502,7 +4502,15 @@ async function routeWithPrecalculatedRoutes(
                 removedFromMap: false, // All routes will be on the map, styled by setupRouteControlPanel
                 // #4: distinct env-A* alternative marker (see deduplication guard).
                 routingEngine: route.routingEngine,
-                astarAlternativeSignature: route.astarAlternativeSignature
+                astarAlternativeSignature: route.astarAlternativeSignature,
+                dataSourceInfo: route.dataSourceInfo || {},
+                backendExplanation: route.backendExplanation || null,
+                backendTimingMs: route.backendTimingMs,
+                backendParallelism: route.backendParallelism,
+                astarRoutingBasis: route.astarRoutingBasis,
+                astarInternalCost: route.astarInternalCost,
+                astarPathNodeCount: route.astarPathNodeCount,
+                backendEnvScore: route.backendEnvScore
             };
 
             // Generate POI counts if missing
@@ -4585,7 +4593,6 @@ async function routeWithPrecalculatedRoutes(
         const { status, text } = envQualityBadgeFromRoute(bestRoute);
         resolveEnvQualityBadge(runToken, status, text);
 
-        toastr.success(`Generated ${allRoutes.length} routes using A* algorithm for ${currentPatientCondition.name} condition`);
         if (typeof window.updateDownloadButtonText === 'function') window.updateDownloadButtonText();
         return true;
     } catch (error) {

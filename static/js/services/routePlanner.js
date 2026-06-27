@@ -170,9 +170,6 @@ export async function generateOptimizedRoutes(
 
     try {
         if (usePatientAStar) {
-            if (typeof toastr !== 'undefined') {
-                toastr.info(`Running Environmental A* for ${patientCondition.name}…`);
-            }
             try {
                 const astarMs =
                     window.PATHPLANNER_BENCHMARK && window.BENCHMARK_ASTAR_TIMEOUT_MS
@@ -407,6 +404,12 @@ export function convertToRoutesFormat(optimizedRoutes) {
             routingEngine: route.routingEngine || 'unknown',
             astarPathNodeCount: route.astarPathNodeCount,
             astarInternalCost: route.astarInternalCost,
+            dataSourceInfo: route.dataSourceInfo || {},
+            backendExplanation: route.backendExplanation || null,
+            backendTimingMs: route.backendTimingMs,
+            backendParallelism: route.backendParallelism,
+            astarRoutingBasis: route.astarRoutingBasis,
+            backendEnvScore: route.backendEnvScore,
             // #4: carry the distinct-alternative marker into the routes.js layer.
             astarAlternativeSignature: route.astarAlternativeSignature,
         };

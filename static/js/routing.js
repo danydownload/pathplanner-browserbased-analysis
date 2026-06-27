@@ -95,15 +95,9 @@ document.addEventListener("DOMContentLoaded", function() {
         if (patientConditionObject) {
             await PatientConditions.setCurrentPatientCondition(window.currentPatientCondition, patientConditionObject);
             console.log("[routing.js] window.currentPatientCondition AFTER selection change:", JSON.stringify(window.currentPatientCondition, null, 2));
-            if (showToast) {
-                toastr.info(`Patient condition set to: ${window.currentPatientCondition.name} (AQ Sensitivity: ${window.currentPatientCondition.airQualitySensitivity}, Slope Sensitivity: ${window.currentPatientCondition.slopeSensitivity})`);
-            }
         } else if (selectedConditionValue === "default" || selectedConditionValue === "none") {
             await PatientConditions.setCurrentPatientCondition(window.currentPatientCondition, PatientConditions.DEFAULT);
             console.log("[routing.js] window.currentPatientCondition set to DEFAULT due to selection:", JSON.stringify(window.currentPatientCondition, null, 2));
-            if (showToast) {
-                toastr.info(`Patient mode deactivated. Using default preferences.`);
-            }
         } else {
             console.warn("[routing.js] getPatientCondition did not return a valid object for value:", selectedConditionValue);
             await PatientConditions.setCurrentPatientCondition(window.currentPatientCondition, PatientConditions.DEFAULT);
@@ -363,10 +357,6 @@ document.addEventListener("DOMContentLoaded", function() {
         
         if (useOptimizedRouting) {
             try {
-                toastr.info(
-                    `Calculating ${window.currentPatientCondition.name} route (Environmental A* + Mapbox)…`
-                );
-                
                 const optimizedRoutes = await RoutePlanner.generateOptimizedRoutes(
                     { lat: startLat, lon: startLon },
                     { lat: endLat, lon: endLon },

@@ -3,7 +3,8 @@ document.addEventListener("DOMContentLoaded", function() {
     var GEOLOCATION_ENV_EVENT = 'pathplanner:geolocation-position';
 
     // Function to get the current location and add a marker on the map
-    function addCurrentLocationMarker() {
+    function addCurrentLocationMarker(showErrors) {
+        showErrors = Boolean(showErrors);
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(function(position) {
                 var lat = position.coords.latitude;
@@ -27,13 +28,17 @@ document.addEventListener("DOMContentLoaded", function() {
                 loadEnvironmentForCurrentLocation(lat, lng);
             }, function(error) {
                 // Handle errors related to geolocation
-                console.error("Error getting location: " + error.message);
-                toastr.error("Unable to retrieve your location. Please check your settings and try again.");
+                console.warn("Error getting location: " + error.message);
+                if (showErrors && typeof toastr !== 'undefined') {
+                    toastr.error("Unable to retrieve your location. Please check your settings and try again.");
+                }
             });
         } else {
             // Geolocation not supported by the browser
-            console.error("Geolocation is not supported by this browser.");
-            toastr.error("Geolocation is not supported by this browser.");
+            console.warn("Geolocation is not supported by this browser.");
+            if (showErrors && typeof toastr !== 'undefined') {
+                toastr.error("Geolocation is not supported by this browser.");
+            }
         }
     }
 
@@ -85,7 +90,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // Add the current location marker when the map is loaded
-    addCurrentLocationMarker();
+    addCurrentLocationMarker(false);
 
     // Add a button to center the map at the current location
     var locateButton = L.control({position: 'topleft'});
@@ -103,7 +108,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
         // Event handler to trigger geolocation and re-center the map when the button is clicked
         div.onclick = function() {
-            addCurrentLocationMarker();
+            addCurrentLocationMarker(true);
         };
 
         return div;

@@ -450,6 +450,8 @@ Frontend syntax checks were also run:
 ```bash
 node --check static/js/master/routes.js
 node --check static/js/services/routePlanner.js
+node --check static/js/routing.js
+node --check static/js/location.js
 ```
 
 Both passed.
@@ -719,6 +721,23 @@ Django app:     http://127.0.0.1:8765
 GraphHopper:    http://127.0.0.1:8989
 POI SQLite DB:  runtime/local_osm_pois/italy.sqlite3
 ```
+
+Local convention after frontend/backend edits:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml build app
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d app
+```
+
+The local app should stay on:
+
+```text
+http://127.0.0.1:8765
+```
+
+Old app instances on other `8xxx` ports should be stopped before QA.
+GraphHopper on `8989/8990` is not an old app instance; it is the local route
+provider used by the Docker app.
 
 Smoke checks:
 
@@ -998,14 +1017,55 @@ tests/playwright/sidebar-layout.spec.js
 tests/playwright/routing-label.spec.js
 ```
 
-The next practical GUI automation target is an end-to-end route smoke:
+The Docker GUI smoke is:
 
-1. open `/map/`;
-2. fill start/end with fixed coordinates by setting input datasets;
-3. click Find route;
-4. assert route cards and directions render;
-5. assert explanation/source text appears;
-6. optionally toggle layers and verify the map receives overlay elements.
+```text
+scripts/smoke_gui.py
+```
+
+Run it against the rebuilt Docker app:
+
+```bash
+.venv/bin/python scripts/smoke_gui.py \
+  --base-url http://127.0.0.1:8765 \
+  --screenshot-dir artifacts/gui-smoke-current
+```
+
+It checks:
+
+- desktop and mobile viewports;
+- `/map/` loading;
+- fixed Modena start/end route input datasets;
+- route cards and turn-by-turn directions;
+- distance/duration summary spacing;
+- backend explanation/source text in the route cards;
+- PM2.5 layer controls before and after route rendering;
+- actual PM2.5 heatmap canvas rendering;
+- horizontal overflow;
+- critical console/API failures.
+
+Latest local Docker smoke result:
+
+```text
+PASS desktop: 2 cards, 16 steps
+PASS mobile: 2 cards, 16 steps
+```
+
+Screenshots are written to:
+
+```text
+artifacts/gui-smoke-current/desktop-route.png
+artifacts/gui-smoke-current/mobile-route.png
+artifacts/gui-smoke-current/desktop-closed.png
+artifacts/gui-smoke-current/mobile-closed.png
+```
+
+If more coverage is needed, the next practical GUI automation targets are:
+
+1. type real address suggestions instead of setting datasets directly;
+2. switch between route alternatives and verify duplicates stay removed;
+3. exercise preferences/profile changes without losing the selected route inputs;
+4. capture layer screenshots with different pollutants and pollen.
 
 ### Elevation / Slope
 
