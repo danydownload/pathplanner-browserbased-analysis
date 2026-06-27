@@ -300,14 +300,20 @@ document.addEventListener("DOMContentLoaded", function() {
         if (!state || !state.count) {
             return config.label + ': no readings';
         }
-        var stationWord = state.count === 1 ? 'station' : 'stations';
-        return config.label + ': ' + state.count + ' ' + stationWord + ' (' +
+        var pointWord = stationDataState.sourceLabel || (state.count === 1 ? 'station' : 'stations');
+        return config.label + ': ' + state.count + ' ' + pointWord + ' (' +
             formatNumber(state.min) + '-' + formatNumber(state.max) + ' ' + config.unit + ')';
     }
 
     function defaultStatusMessage(activeIds) {
         if (activeIds.length) {
-            return 'Showing ' + activeIds.map(layerSummary).join(' | ');
+            var hasAirLayer = activeIds.some(function(layerId) {
+                return AIR_LAYER_IDS.indexOf(layerId) !== -1 && layerStates[layerId] && layerStates[layerId].count;
+            });
+            var suffix = hasAirLayer
+                ? '. Numbered circles are grouped markers; zoom in or click them to inspect individual points.'
+                : '';
+            return 'Showing ' + activeIds.map(layerSummary).join(' | ') + suffix;
         }
         if (stationDataState.loading) {
             return 'Air-quality station data is loading. Pollen loads from Open-Meteo for the selected start point.';
@@ -319,7 +325,7 @@ document.addEventListener("DOMContentLoaded", function() {
             return 'No air-quality data points were returned. Pollen can still be requested.';
         }
         return 'Air-quality layers ready from ' + stationDataState.stationCount + ' ' +
-            stationDataState.sourceLabel + '. Pollen loads from Open-Meteo.';
+            stationDataState.sourceLabel + '. Numbered circles may group nearby points. Pollen loads from Open-Meteo.';
     }
 
     function buildLegendItem(layerId) {
@@ -333,7 +339,8 @@ document.addEventListener("DOMContentLoaded", function() {
                 detail += ' · highest: ' + state.dominantLabel;
             }
         } else if (state.count) {
-            detail = state.count + ' station' + (state.count === 1 ? '' : 's') +
+            var pointLabel = stationDataState.sourceLabel || (state.count === 1 ? 'station' : 'stations');
+            detail = state.count + ' ' + pointLabel +
                 ' · observed ' + formatNumber(state.min) + '-' + formatNumber(state.max) + ' ' + config.unit;
         } else if (state.status === 'loading') {
             detail = 'Loading current values...';
@@ -353,6 +360,7 @@ document.addEventListener("DOMContentLoaded", function() {
             '<div class="layer-legend-meaning">' + escapeHtml(config.meaning) + '</div>' +
             '<div class="layer-legend-detail">' + escapeHtml(detail) + '</div>' +
             '<div class="layer-legend-source">' + escapeHtml(config.source) + '</div>' +
+            '<div class="layer-legend-note">Heat colors are interpolated from real point values; marker numbers are clusters, not extra measurements.</div>' +
         '</div>';
     }
 

@@ -942,7 +942,8 @@ input[type="range"]::-moz-range-thumb {
 .layer-legend-unit,
 .layer-legend-scale,
 .layer-legend-detail,
-.layer-legend-source {
+.layer-legend-source,
+.layer-legend-note {
     color: #bfdbfe;
 }
 
@@ -975,6 +976,14 @@ input[type="range"]::-moz-range-thumb {
 
 .layer-legend-source {
     margin-top: 5px;
+    font-size: 0.69rem;
+    line-height: 1.25;
+}
+
+.layer-legend-note {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(147, 197, 253, 0.16);
     font-size: 0.69rem;
     line-height: 1.25;
 }
