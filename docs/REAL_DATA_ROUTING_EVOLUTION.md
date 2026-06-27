@@ -249,6 +249,47 @@ Refresh indexes on an existing DB:
   --optimize-only
 ```
 
+### New Ensure Script For Server Bootstrap
+
+File:
+
+```text
+scripts/ensure_local_osm_poi_db.py
+```
+
+Purpose:
+
+- check whether the configured SQLite DB exists and is valid;
+- do nothing when the DB already has enough POI/walkability rows;
+- if the DB is missing, import it from the configured PBF;
+- build into a temporary file first;
+- atomically replace the target DB only after the import validates.
+
+Local check:
+
+```bash
+LOCAL_OSM_POI_DB=runtime/local_osm_pois/italy.sqlite3 \
+LOCAL_OSM_PBF_PATH=pbf/italy-260626.osm.pbf \
+.venv/bin/python scripts/ensure_local_osm_poi_db.py
+```
+
+Expected output when the DB is already present:
+
+```text
+"action": "already_exists"
+```
+
+Build modes:
+
+| Mode | Env / argument | Result |
+| --- | --- | --- |
+| full | `LOCAL_OSM_POI_BUILD_MODE=full` or `--mode full` | POIs plus walkability features |
+| POI-only | `LOCAL_OSM_POI_BUILD_MODE=poi-only` or `--mode poi-only` | route POIs only, faster/smaller |
+
+Important: full Italy import can take around 15 minutes on a laptop-class
+machine and requires enough disk space for the temporary DB. The script avoids
+leaving a partial target DB if the import fails.
+
 ### Backend Integration
 
 Files:
@@ -399,6 +440,63 @@ volumes:
 
 This means the app image stays small, while generated local data remains on the
 host filesystem.
+
+### OSM Data Compose Override
+
+File:
+
+```text
+docker-compose.osm-data.yml
+```
+
+This override is intended for local/server deployments that should have
+GraphHopper/SQLite data mounted from the host. It mounts:
+
+```text
+./runtime/local_osm_pois -> /app/runtime/local_osm_pois
+./pbf                    -> /app/pbf:ro
+```
+
+It also wires these environment variables:
+
+```env
+LOCAL_OSM_POI_DB=/app/runtime/local_osm_pois/italy.sqlite3
+LOCAL_OSM_PBF_PATH=/app/pbf/italy-260626.osm.pbf
+LOCAL_OSM_POI_BUILD_MODE=full
+PATHPLANNER_ENSURE_LOCAL_OSM_DB=false
+```
+
+To make the app container create the SQLite DB automatically when it is missing,
+set:
+
+```env
+PATHPLANNER_ENSURE_LOCAL_OSM_DB=true
+```
+
+Then start with:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.osm-data.yml \
+  up -d --build
+```
+
+For a first server boot, make sure the PBF exists before enabling auto-build:
+
+```text
+pbf/italy-260626.osm.pbf
+```
+
+The runtime DB directory must be writable by the app container:
+
+```text
+runtime/local_osm_pois/
+```
+
+The Docker entrypoint calls the ensure script only when
+`PATHPLANNER_ENSURE_LOCAL_OSM_DB` is `true` or `1`. Normal restarts therefore do
+not rebuild the DB.
 
 ### Docker Build Context
 

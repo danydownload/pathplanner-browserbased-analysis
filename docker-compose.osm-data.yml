@@ -1,0 +1,12 @@
+services:
+  app:
+    environment:
+      PATHPLANNER_ENSURE_LOCAL_OSM_DB: ${PATHPLANNER_ENSURE_LOCAL_OSM_DB:-false}
+      LOCAL_OSM_POI_DB: ${LOCAL_OSM_POI_DB:-/app/runtime/local_osm_pois/italy.sqlite3}
+      LOCAL_OSM_PBF_PATH: ${LOCAL_OSM_PBF_PATH:-/app/pbf/italy-260626.osm.pbf}
+      LOCAL_OSM_POI_BUILD_MODE: ${LOCAL_OSM_POI_BUILD_MODE:-full}
+      LOCAL_OSM_POI_MIN_ROWS: ${LOCAL_OSM_POI_MIN_ROWS:-1}
+      LOCAL_OSM_WALKABILITY_MIN_ROWS: ${LOCAL_OSM_WALKABILITY_MIN_ROWS:-1}
+    volumes:
+      - ./runtime/local_osm_pois:/app/runtime/local_osm_pois
+      - ./pbf:/app/pbf:ro
