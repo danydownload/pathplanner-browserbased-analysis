@@ -290,6 +290,44 @@ Important: full Italy import can take around 15 minutes on a laptop-class
 machine and requires enough disk space for the temporary DB. The script avoids
 leaving a partial target DB if the import fails.
 
+### Runtime Config Readiness Check
+
+File:
+
+```text
+scripts/check_runtime_config.py
+```
+
+Purpose:
+
+- read configured env files plus process environment;
+- verify required Django keys are present;
+- verify GraphHopper URL is reachable;
+- verify local SQLite POI/walkability DB is readable in read-only mode;
+- optionally verify the PBF path exists for server bootstrap;
+- optionally require Mapbox/OpenAQ keys;
+- never print secret values.
+
+Typical server check:
+
+```bash
+python scripts/check_runtime_config.py \
+  --env-file .env \
+  --require-mapbox \
+  --require-pbf
+```
+
+For machine-readable output:
+
+```bash
+python scripts/check_runtime_config.py --env-file .env --json
+```
+
+The check treats `MAPBOX_ACCESS_TOKEN` as recommended by default and required
+only with `--require-mapbox`. This is intentional: backend routing can run
+without Mapbox, but browser address suggestions and the direct Mapbox UI route
+need it.
+
 ### Backend Integration
 
 Files:
@@ -394,7 +432,7 @@ Current verification:
 Observed result:
 
 ```text
-51 passed
+53 passed
 ```
 
 Additional coverage was added for:
@@ -727,6 +765,17 @@ What it checks:
   sources;
 - with `--require-walkability`, the route must expose local walkability feature
   counts.
+
+The smoke test also runs the runtime config readiness check unless
+`--skip-config-check` is passed. To validate frontend lookup readiness too:
+
+```bash
+.venv/bin/python scripts/smoke_backend_cities.py \
+  --require-local-data \
+  --require-walkability \
+  --require-mapbox \
+  --require-pbf
+```
 
 The script currently includes Modena, Bologna, Florence, Rome, London, and New
 York cases. It queries the active GraphHopper `/info` bbox and skips cases

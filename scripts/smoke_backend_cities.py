@@ -26,6 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts.check_runtime_config import check_runtime_config
+
 
 @dataclass(frozen=True)
 class RouteCase:
@@ -226,12 +228,31 @@ def main() -> int:
     parser.add_argument('--no-skip-outside-graphhopper-bbox', action='store_true')
     parser.add_argument('--require-local-data', action='store_true')
     parser.add_argument('--require-walkability', action='store_true')
+    parser.add_argument('--skip-config-check', action='store_true')
+    parser.add_argument('--env-file', action='append', type=Path, default=[])
+    parser.add_argument('--require-mapbox', action='store_true')
+    parser.add_argument('--require-openaq', action='store_true')
+    parser.add_argument('--require-pbf', action='store_true')
     parser.add_argument('--json', action='store_true', help='Print machine-readable JSON summary')
     args = parser.parse_args()
 
     cases = _selected_cases(set(args.region or []), set(args.case_keys or []))
     if not cases:
         parser.error('no route cases selected')
+
+    config_result = None
+    config_failed = False
+    if not args.skip_config_check:
+        config_result = check_runtime_config(
+            env_files=args.env_file or [ROOT / '.env'],
+            require_mapbox=args.require_mapbox,
+            require_openaq=args.require_openaq,
+            require_pbf=args.require_pbf,
+            check_graphhopper=True,
+            check_local_db=True,
+            graphhopper_timeout=min(args.timeout, 10.0),
+        )
+        config_failed = not config_result['ok']
 
     graphhopper_bbox = None if args.no_skip_outside_graphhopper_bbox else _fetch_graphhopper_bbox(
         args.graphhopper_url,
@@ -290,14 +311,21 @@ def main() -> int:
         'direct': args.direct,
         'graphhopper_bbox': graphhopper_bbox,
         'passed': sum(1 for result in results if result['status'] == 'passed'),
-        'failed': failures,
+        'failed': failures + (1 if config_failed else 0),
         'skipped': sum(1 for result in results if result['status'] == 'skipped'),
+        'config': config_result,
         'results': results,
     }
 
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
+        if config_result:
+            print(f"CONFIG {'PASS' if config_result['ok'] else 'FAIL'}")
+            for error in config_result['errors']:
+                print(f'CONFIG ERROR {error}')
+            for warning in config_result['warnings']:
+                print(f'CONFIG WARN {warning}')
         for result in results:
             if result['status'] == 'skipped':
                 print(f"SKIP {result['case']} ({result['city']}): {result['reason']}")
@@ -310,7 +338,7 @@ def main() -> int:
             else:
                 print(f"FAIL {result['case']} ({result['city']}): {'; '.join(result['errors'])}")
         print(f"Summary: {summary['passed']} passed, {summary['failed']} failed, {summary['skipped']} skipped")
-    return 1 if failures else 0
+    return 1 if summary['failed'] else 0
 
 
 if __name__ == '__main__':
