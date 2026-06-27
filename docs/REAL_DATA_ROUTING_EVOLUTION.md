@@ -17,6 +17,8 @@ real-data flow:
   cached briefly to avoid redundant calls to air/weather/elevation providers;
 - route payloads now include an `explanation` object with environmental summary,
   nearest POIs, walkability signals, data sources, and readable reasons;
+- the route selector UI can show those explanations and sources directly in the
+  route card;
 - public Overpass remains as fallback, not as the preferred runtime dependency;
 - the Docker setup mounts generated local routing/POI data instead of baking
   large PBF or SQLite files into the image.
@@ -156,6 +158,14 @@ penalize routes near steps, steep inclines, bad surfaces, poor smoothness, or
 limited wheelchair accessibility. The penalty is stronger for profiles such as
 `mobility`, `arthritis`, and `cardiac`.
 
+Current status:
+
+- route scoring already calls the local walkability lookup;
+- penalties are applied when matching rows exist in the SQLite DB;
+- the existing Italy DB is mostly POI-focused, so the next data rebuild should
+  include a complete walkability import if we want this signal to be reliable
+  across the whole country.
+
 ### Environmental Sampling And Caching
 
 The backend no longer samples every short route with the maximum number of
@@ -174,12 +184,18 @@ Each sampled point uses a short-lived backend cache:
 ```env
 BACKEND_ASTAR_ENV_CACHE_TTL_SECONDS=600
 BACKEND_ASTAR_ENV_CACHE_PRECISION=3
+BACKEND_ASTAR_WALKABILITY_RADIUS_M=35
 ```
 
 This matters because air quality/weather often has coarser spatial resolution
 than individual street segments. Calling the same external provider for many
 nearby points on a short route does not necessarily improve clinical accuracy,
 but it does increase latency and timeout risk.
+
+For the current app, this is the intended tradeoff: on short urban routes, air
+quality is usually not precise enough to justify many per-segment calls. The
+backend samples enough points to detect meaningful changes while keeping route
+calculation responsive.
 
 ## What Changed In The Repo
 
@@ -258,6 +274,37 @@ route.explanation.reasons
 This makes the route score easier to inspect: the frontend can show why a route
 was preferred without reverse-engineering the raw cost.
 
+Additional backend changes:
+
+- environment samples are fetched in parallel where useful;
+- POIs, environmental samples, and walkability lookups are coordinated together
+  for GraphHopper candidate routes;
+- similar GraphHopper alternatives are removed immediately, before they are
+  returned to the frontend;
+- route scoring includes walkability penalties when local walkability rows are
+  available.
+
+### Frontend Route Explanation
+
+Files:
+
+```text
+static/js/services/routePlanner.js
+static/js/master/routes.js
+static/css/map.css
+templates/map.html
+```
+
+Changes:
+
+- backend `route.explanation` is preserved in frontend route objects;
+- route cards can show compact summaries such as average air quality, average
+  slope, nearest green/care POIs, and walkability penalty;
+- route cards can show source summaries such as GraphHopper, local OSM POIs,
+  Open-Meteo air quality, and slope provider;
+- the directions panel spacing and contrast were adjusted so the summary chips
+  and instruction list have clearer vertical separation.
+
 ### Dependency
 
 File:
@@ -298,12 +345,6 @@ Current verification:
 Observed result:
 
 ```text
-43 passed
-```
-
-After the latest backend changes, the full evaluations suite is:
-
-```text
 47 passed
 ```
 
@@ -314,6 +355,15 @@ Additional coverage was added for:
 - near-duplicate GraphHopper alternatives;
 - walkability penalties;
 - route explanation payloads.
+
+Frontend syntax checks were also run:
+
+```bash
+node --check static/js/master/routes.js
+node --check static/js/services/routePlanner.js
+```
+
+Both passed.
 
 ## What Changed In Docker
 
@@ -425,13 +475,37 @@ showed a cold/warm pattern:
 
 | Run | Time |
 | --- | ---: |
-| first local run | ~915 ms |
-| immediate repeated run | ~30 ms |
+| first local run | ~840 ms |
+| immediate repeated run | ~31 ms |
 
 The second run is fast because route environment samples hit the backend cache.
 This does not mean every fresh route will be 30 ms, but it confirms repeated
 recalculation, route switching, and nearby requests no longer hammer external
 environment providers.
+
+Observed payload shape from the latest Modena benchmark:
+
+```text
+source: graphhopper_candidate_routing
+route_count: 2
+first_route.distance_m: 1670
+first_route.duration_s: 1202
+first_route.explanation.environment.sample_count: 3
+first_route.explanation.environment.cache_hits: 3 on the repeated run
+```
+
+Observed data sources:
+
+```text
+street_graph: GraphHopper local OSM graph
+poi_nature: OpenStreetMap local PBF SQLite: italy.sqlite3
+poi_hospital: OpenStreetMap local PBF SQLite: italy.sqlite3
+poi_nightlife: OpenStreetMap local PBF SQLite: italy.sqlite3
+airQuality: Open-Meteo Air Quality API
+temperature/humidity/weather/windSpeed: Open-Meteo
+slope: OpenTopoData-srtm30m
+walkability: OpenStreetMap local PBF SQLite: italy.sqlite3
+```
 
 ### POI Query Timing
 
@@ -482,6 +556,17 @@ GRAPHHOPPER_URL=http://127.0.0.1:8989 \
   --tolerance 5 \
   --repeats 3
 ```
+
+The benchmark script currently includes these cases:
+
+| Case | Area | Notes |
+| --- | --- | --- |
+| `modena-portali` | Modena | current local Italy GraphHopper/SQLite test case |
+| `london-short` | London | useful after loading a UK/London PBF graph |
+| `new-york-short` | New York | useful after loading a New York/US PBF graph |
+
+Only areas present in the active GraphHopper graph and local SQLite DB can be
+tested fully with local route/POI data.
 
 ## Where Data Calls Happen
 
@@ -569,6 +654,27 @@ Expected local source in JSON:
 OpenStreetMap local PBF SQLite: italy.sqlite3
 ```
 
+### Walkability Features
+
+Walkability is queried here:
+
+| Layer | File/function | Purpose |
+| --- | --- | --- |
+| Backend route engine | `evaluations/backend_astar.py::_fetch_walkability_features()` | requests nearby local OSM walkability rows |
+| Local DB service | `evaluations/local_osm_poi_service.py::fetch_local_walkability_features()` | indexed bbox/radius query |
+| Edge scoring | `evaluations/backend_astar.py::_calculate_edge_cost()` | applies feature penalties to candidate segments |
+| Route scoring | `evaluations/backend_astar.py::_score_candidate_path()` | includes walkability in final candidate cost |
+
+The lookup radius is controlled by:
+
+```env
+BACKEND_ASTAR_WALKABILITY_RADIUS_M=35
+```
+
+Current caveat: the backend path is implemented and tested, but the local DB
+must be rebuilt with complete walkability features before this signal is
+representative for all Italian routes.
+
 ### Weather
 
 Weather for backend route scoring is fetched here:
@@ -621,6 +727,18 @@ Frontend air quality calls also exist:
 | Optional Google AQ | `static/js/services/airQualityGoogle.js` | Google Air Quality API if configured |
 
 For backend route scoring, `evaluations/air_quality_service.py` is the key path.
+
+Backend route sampling/cache is coordinated here:
+
+| Layer | File/function | Purpose |
+| --- | --- | --- |
+| Route engine | `evaluations/backend_astar.py::_sample_environment_points()` | chooses route sample points adaptively |
+| Route engine | `evaluations/backend_astar.py::_fetch_backend_environment_data()` | fetches/caches AQ, weather, and slope for one sample |
+| Route engine | `evaluations/backend_astar.py::_backend_env_cache_key()` | rounds nearby samples into short-lived cache keys |
+
+Cache behavior is intentionally process-local and short-lived. It is not a
+persistent city cache, so a user can move from Modena to New York or London
+without relying on stale precomputed city blobs.
 
 ### Elevation / Slope
 
@@ -704,8 +822,26 @@ The main remaining external dependencies are:
 
 The next likely improvement is to reduce those route-time API calls:
 
-- cache or batch environmental samples more aggressively;
+- batch environmental samples more aggressively where providers allow it;
 - use GraphHopper path details for road/surface metadata where possible;
 - add a local DEM if true offline slope is required;
 - import and integrate OSM walkability features (`steps`, `incline`, `surface`,
   `smoothness`, `wheelchair`) into the clinical score.
+
+## Local Checkpoints
+
+Current local branch:
+
+```text
+codex/real-data-routing
+```
+
+Useful local commits/tags:
+
+| Commit/tag | Purpose |
+| --- | --- |
+| `3ab5b13` / `local-osm-poi-index-20260627-1055` | local OSM POI index support |
+| `f8f3ae3` / `local-osm-poi-indexes-20260627-1102` | optimized local SQLite indexes |
+| `067b326` / `real-data-routing-explainability-20260627-1518` | adaptive sampling, route explanation, dedup, walkability scoring hooks, frontend explanation |
+
+No remote push is required for these checkpoints; they are local recovery points.
