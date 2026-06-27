@@ -117,6 +117,13 @@ class UserProfileForm(forms.ModelForm):
 
 # Form to display a user's preferences and allow them to modify it
 class UserPreferencesForm(forms.ModelForm):
+    CLINICAL_FIELD = 'hospital'
+    LEISURE_FIELDS = ('entertainment', 'tourism', 'nightlife')
+    SEMANTIC_WARNING = (
+        'This set mixes strong medical access with leisure/nightlife priorities. '
+        'It is allowed, but for clinical routing consider keeping one main focus.'
+    )
+
     class Meta:
         model = UserPreferences
         fields = [
@@ -144,3 +151,11 @@ class UserPreferencesForm(forms.ModelForm):
             'nightlife': forms.NumberInput(attrs={'type': 'range', 'min': 0, 'max': 10, 'step': 1, 'id': 'id_nightlife', 'class': 'preference-slider'}),
             'hospital': forms.NumberInput(attrs={'type': 'range', 'min': 0, 'max': 10, 'step': 1, 'id': 'id_hospital', 'class': 'preference-slider'}),
         }
+
+    def semantic_warning(self):
+        values = self.cleaned_data if self.is_bound and hasattr(self, 'cleaned_data') else {}
+        hospital = float(values.get(self.CLINICAL_FIELD) or 0)
+        leisure_peak = max(float(values.get(field) or 0) for field in self.LEISURE_FIELDS)
+        if hospital >= 6 and leisure_peak >= 6:
+            return self.SEMANTIC_WARNING
+        return ''

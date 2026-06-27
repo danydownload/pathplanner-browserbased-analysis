@@ -130,6 +130,13 @@ class PreferenceReturnMixin:
         context['next_url'] = safe_next_url(self.request) or reverse_lazy('users:profile')
         return context
 
+    def form_valid(self, form):
+        warning = form.semantic_warning() if hasattr(form, 'semantic_warning') else ''
+        response = super().form_valid(form)
+        if warning:
+            messages.warning(self.request, warning)
+        return response
+
 
 class UserPreferenceQuerysetMixin:
     def get_queryset(self):

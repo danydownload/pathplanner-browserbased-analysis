@@ -55,7 +55,7 @@
                     </div>
                     <a id="creationbutton" href="{% url 'users:add_set' %}" class="btn btn-success">Create set</a>
                 </div>
-                <p class="profile-panel-copy">Saved sets are optional route-style presets. They can be combined with clinical routing when you want a personal focus such as parks, medical access, tourism or nightlife.</p>
+                <p class="profile-panel-copy">Saved sets are advanced route-style presets. Prefer one clear focus for clinical use; mixed leisure and medical priorities are allowed, but should be intentional.</p>
                 <div>
                     <div class="preference-card-list">
                         {% for preference in object_list %}
@@ -81,7 +81,7 @@
                         {% empty %}
                         <div class="preference-empty">
                             <h3>No saved routing sets</h3>
-                            <p>You can still choose the built-in route styles on the map. Create a set only if you want a reusable personal mix.</p>
+                            <p>You can still choose the built-in route styles on the map. Create a set only if you need a reusable advanced mix.</p>
                         </div>
                         {% endfor %}
                     </div>

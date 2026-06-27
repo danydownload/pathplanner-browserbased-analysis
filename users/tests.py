@@ -3,6 +3,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
+from .forms import UserPreferencesForm
 from .models import UserPreferences
 
 
@@ -81,6 +82,27 @@ class PreferenceMapTests(TestCase):
         self.assertEqual(added_preference.name, 'Edited map route')
         self.assertEqual(added_preference.nature, 6)
 
+    def test_custom_preference_semantic_warning_allows_but_flags_mixed_focus(self):
+        coherent_form = UserPreferencesForm(data={
+            **PREFERENCE_FORM_DATA,
+            'hospital': '7',
+            'nightlife': '0',
+            'entertainment': '2',
+            'tourism': '3',
+        })
+        self.assertTrue(coherent_form.is_valid())
+        self.assertEqual(coherent_form.semantic_warning(), '')
+
+        mixed_form = UserPreferencesForm(data={
+            **PREFERENCE_FORM_DATA,
+            'hospital': '8',
+            'nightlife': '7',
+            'entertainment': '1',
+            'tourism': '0',
+        })
+        self.assertTrue(mixed_form.is_valid())
+        self.assertIn('mixes strong medical access', mixed_form.semantic_warning())
+
     def test_signup_collects_profile_fields_and_clinical_default(self):
         response = self.client.post(reverse('users:signup'), {
             'username': 'newpatient',
@@ -108,6 +130,8 @@ class PreferenceMapTests(TestCase):
         response = self.client.get(reverse('map'))
 
         self.assertContains(response, 'Route style')
+        self.assertContains(response, 'Custom mixes are advanced')
+        self.assertContains(response, 'Advanced saved styles')
         self.assertContains(response, 'id="preferenceSet"')
         self.assertContains(response, 'data-weights-url-template')
         self.assertContains(response, reverse('users:preference_weights', args=[0]))

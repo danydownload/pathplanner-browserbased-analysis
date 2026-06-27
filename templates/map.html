@@ -79,7 +79,7 @@
                     </div>
                     <div class="control-block" id="preferenceSetBlock">
                         <label for="preferenceSet" class="form-label"><strong>Route style</strong></label>
-                        <p class="form-hint">Choose a preset focus. Clinical mode can still adjust it for patient needs.</p>
+                        <p class="form-hint">Choose one preset focus. Custom mixes are advanced and optional.</p>
                         <select
                             class="form-select"
                             id="preferenceSet"
@@ -94,7 +94,7 @@
                                 <option value="nightlife">Nightlife</option>
                             </optgroup>
                             {% if user_preferences %}
-                                <optgroup label="Saved preferences">
+                                <optgroup label="Advanced saved styles">
                                     {% for preference in user_preferences %}
                                         <option
                                             value="{{ preference.id }}"
@@ -109,7 +109,7 @@
                         </select>
                         {% if user.is_authenticated %}
                             <div class="preference-actions" role="group" aria-label="Route style actions">
-                                <a href="{% url 'users:add_set' %}?next={% url 'map' %}" class="preference-action preference-action--primary">Add</a>
+                                <a href="{% url 'users:add_set' %}?next={% url 'map' %}" class="preference-action preference-action--primary">Add set</a>
                                 <a id="preferenceEditLink" href="#" class="preference-action disabled" aria-disabled="true">Edit</a>
                                 <button id="preferenceDeleteButton" type="submit" form="preferenceDeleteForm" class="preference-action preference-action--danger" disabled>Delete</button>
                             </div>

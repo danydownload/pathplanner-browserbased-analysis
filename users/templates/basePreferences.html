@@ -27,7 +27,7 @@
         <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             <input type="hidden" name="next" value="{{ next_url }}">
-            <p class="preferences-copy">Tune how strongly this preset should favor each kind of place. The clinical profile is applied separately on the map.</p>
+            <p class="preferences-copy">Advanced personal set: tune how strongly this route style should favor each kind of place. The clinical profile is applied separately on the map.</p>
             {% for field in form %}
                 {% if field.name == 'name' %}
                     <div class="preference-name-card">
@@ -50,6 +50,9 @@
                     </div>
                     {% endif %}
                 {% endfor %}
+            </div>
+            <div id="preferenceSemanticWarning" class="preference-semantic-warning" role="status" aria-live="polite" hidden>
+                This set mixes strong medical access with leisure/nightlife priorities. It is allowed, but for clinical routing consider keeping one main focus.
             </div>
             {% block action %}{% endblock %}
             {% block href %}{% endblock %}
@@ -83,6 +86,24 @@
                     updateValueAndComment(event.target);
                 });
             });
+
+            const semanticWarning = document.getElementById('preferenceSemanticWarning');
+            const watchSemanticMix = () => {
+                if (!semanticWarning) return;
+                const valueFor = (id) => Number(document.getElementById(id)?.value || 0);
+                const hospital = valueFor('id_hospital');
+                const leisurePeak = Math.max(
+                    valueFor('id_entertainment'),
+                    valueFor('id_tourism'),
+                    valueFor('id_nightlife')
+                );
+                semanticWarning.hidden = !(hospital >= 6 && leisurePeak >= 6);
+            };
+
+            document.querySelectorAll('input[type="range"]').forEach(slider => {
+                slider.addEventListener('input', watchSemanticMix);
+            });
+            watchSemanticMix();
         });
     </script>
 </body>
