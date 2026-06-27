@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 
 test.skip(true, 'Legacy macOS-theme spec targets removed CSS tokens/caption elements; current sidebar/layout coverage lives in pathplanner-full and sidebar specs.');
 
-const baseURL = process.env.PP_BASE_URL || 'http://localhost:8035';
+const baseURL = process.env.PP_BASE_URL || 'http://127.0.0.1:8765';
 const screenshotDir = process.env.PP_SCREENSHOT_DIR || 'logs/jobs';
 
 async function mockSuggestions(page) {

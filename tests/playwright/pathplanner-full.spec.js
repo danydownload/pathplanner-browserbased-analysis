@@ -103,11 +103,13 @@ test.describe('PathPlanner full GUI regression', () => {
       preferenceSet: document.getElementById('preferenceSet').value,
       patientName: window.currentPatientCondition.name,
       isPatientMode: window.currentPatientCondition.isPatientMode,
+      hospitalPreference: window.currentPreferences.hospital,
     }));
 
-    expect(afterPatientMode.preferenceSet).toBe('balanced');
+    expect(afterPatientMode.preferenceSet).toBe('medical');
     expect(afterPatientMode.patientName).toBe('respiratory');
     expect(afterPatientMode.isPatientMode).toBe(true);
+    expect(afterPatientMode.hospitalPreference).toBe(10);
   });
 
   test('address autocomplete stays inside the sidebar and selects coordinates', async ({ page }) => {
@@ -174,6 +176,7 @@ test.describe('PathPlanner full GUI regression', () => {
           heatCanvasCount: document.querySelectorAll('.leaflet-overlay-pane canvas').length,
           markerCount: document.querySelectorAll('.leaflet-marker-pane .leaflet-marker-icon, .leaflet-marker-pane .marker-cluster').length,
           legendText: legend ? legend.textContent.replace(/\s+/g, ' ').trim() : '',
+          legendCardCount: document.querySelectorAll('#layerLegend .layer-legend-item').length,
           statusText: status ? status.textContent.replace(/\s+/g, ' ').trim() : '',
         };
       }, layerId);
@@ -181,6 +184,7 @@ test.describe('PathPlanner full GUI regression', () => {
       expect(metrics.pressed).toBe('true');
       expect(metrics.activeClass).toBe(true);
       expect(metrics.heatCanvasCount).toBeGreaterThanOrEqual(1);
+      expect(metrics.legendCardCount).toBeGreaterThanOrEqual(1);
       expect(`${metrics.legendText} ${metrics.statusText}`).toMatch(/PM2\.5|PM10|NO|O|Pollen|Showing/i);
 
       await page.click(`#${layerId}`);
@@ -203,6 +207,7 @@ test.describe('PathPlanner full GUI regression', () => {
     expect(metrics.directionsOpen).toBe(true);
     expect(metrics.routeCardCount).toBeGreaterThanOrEqual(1);
     expect(metrics.uniqueRouteTextCount).toBe(metrics.routeCardCount);
+    expect(metrics.routesClippedBySelector).toBe(false);
     expect(metrics.stepCount).toBeGreaterThanOrEqual(3);
     expect(metrics.hasSummary).toBe(true);
     expect(metrics.summaryMarginBottom).toBeGreaterThanOrEqual(18);
@@ -221,6 +226,7 @@ test.describe('PathPlanner full GUI regression', () => {
       const afterSwitch = await collectLayoutMetrics(page);
       expect(afterSwitch.routeCardCount).toBe(metrics.routeCardCount);
       expect(afterSwitch.uniqueRouteTextCount).toBe(afterSwitch.routeCardCount);
+      expect(afterSwitch.routesClippedBySelector).toBe(false);
     }
 
     const previewButton = page.locator('.directions-route-preview:not(.directions-route-preview--stop)').first();

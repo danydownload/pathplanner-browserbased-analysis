@@ -2,7 +2,7 @@ const { test, expect } = require('@playwright/test');
 
 test.skip(true, 'Legacy routing caption spec targets a removed smart-routing caption; current routing control coverage lives in pathplanner-full.spec.js.');
 
-const baseURL = process.env.PP_BASE_URL || 'http://localhost:8034';
+const baseURL = process.env.PP_BASE_URL || 'http://127.0.0.1:8765';
 const screenshotDir = process.env.PP_SCREENSHOT_DIR || 'artifacts/playwright';
 
 async function getRoutingLabelMetrics(page) {

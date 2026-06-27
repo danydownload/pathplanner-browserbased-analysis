@@ -368,6 +368,10 @@ Additional backend changes:
   for GraphHopper candidate routes;
 - similar GraphHopper alternatives are removed immediately, before they are
   returned to the frontend;
+- tiny local GraphHopper geometry loops are removed before scoring/rendering
+  when they return almost to the same point after a short detour;
+- frontend waypoints are simplified with minimum spacing, while the full backend
+  geometry is preserved for displayed route coordinates;
 - route scoring includes walkability penalties when local walkability rows are
   available.
 
@@ -385,12 +389,83 @@ templates/map.html
 Changes:
 
 - backend `route.explanation` is preserved in frontend route objects;
+- backend `route.path` is now used as the authoritative displayed geometry;
+- backend `route.waypoints` is used only as a small set of guide points for the
+  frontend router, reducing 0 m intermediate "tappa" instructions;
 - route cards can show compact summaries such as average air quality, average
   slope, nearest green/care POIs, and walkability penalty;
 - route cards can show source summaries such as GraphHopper, local OSM POIs,
   Open-Meteo air quality, and slope provider;
 - the directions panel spacing and contrast were adjusted so the summary chips
   and instruction list have clearer vertical separation.
+- the route selector height was increased so multiple suggested routes are not
+  clipped above the preview controls.
+
+### User Preferences And Profile UI
+
+Files:
+
+```text
+users/models.py
+users/forms.py
+users/views.py
+users/templates/profile.html
+users/templates/edit_profile.html
+templates/map.html
+static/js/master/patientConditions.js
+static/js/routing.js
+static/css/usersTemplates.css
+```
+
+Changes:
+
+- selecting a clinical condition no longer resets the selected preference set to
+  `balanced`;
+- map state restore now applies saved preferences before applying the clinical
+  condition, so returning to the map preserves both controls;
+- saved preference sets now use the same 0-10 weight scale as the map;
+- legacy preference form fields that are not used by routing were removed from
+  the add/edit form;
+- the profile page now shows saved routing sets as themed cards instead of an
+  old table;
+- profile edit now pre-fills first name, last name, and email;
+- email is displayed but locked until a dedicated email/password reset flow is
+  added;
+- profile image upload is available and the map account avatar uses the uploaded
+  circular image when present;
+- the map account label now shows full name, username, or email instead of the
+  generic `User` text.
+
+### Map Layers
+
+Files:
+
+```text
+static/js/heatmap.js
+static/css/map.css
+templates/map.html
+evaluations/views.py
+evaluations/air_quality_service.py
+evaluations/pollen_service.py
+```
+
+The layer buttons request and render real data before or after a route is
+calculated:
+
+| Layer | Frontend call | Backend/provider |
+| --- | --- | --- |
+| PM2.5 / PM10 / NO2 / O3 | `static/js/heatmap.js` calls `/api/air_quality/?lat=...&lon=...` when no station rows are available | `evaluations/views.py::get_air_quality_data()` -> `evaluations/air_quality_service.py` -> Open-Meteo Air Quality, OpenAQ fallback |
+| Pollen | `static/js/heatmap.js` calls `/api/pollen/?lat=...&lon=...` | `evaluations/views.py::get_pollen_data()` -> `evaluations/pollen_service.py` -> Open-Meteo pollen |
+
+The values remain real provider values. The heatmap samples around the selected
+point are deterministic rendering samples so a single gridded/station value is
+visible as an area on Leaflet; they are not fabricated measurements.
+
+Latest layer UI changes:
+
+- layer legend cards now use the app dark theme instead of gray inline cards;
+- heatmap radius/opacity were tuned so active layers are visible;
+- activating a layer focuses the map on the layer markers/sampled area.
 
 ### Dependency
 

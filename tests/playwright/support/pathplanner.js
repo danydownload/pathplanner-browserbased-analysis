@@ -201,6 +201,9 @@ async function collectLayoutMetrics(page) {
     const routeCards = [...document.querySelectorAll('.directions-route-card, .route-item')].filter(visible);
     const steps = [...document.querySelectorAll('.directions-step, .turn-directions-step')].filter(visible);
     const routeTexts = routeCards.map((card) => card.textContent.replace(/\s+/g, ' ').trim());
+    const selector = document.getElementById('directionsRouteSelector');
+    const selectorRect = selector?.getBoundingClientRect();
+    const lastRouteRect = routeCards.length ? routeCards[routeCards.length - 1].getBoundingClientRect() : null;
     const rect = panel?.getBoundingClientRect();
     return {
       directionsOpen: panel?.getAttribute('aria-hidden') === 'false',
@@ -208,6 +211,9 @@ async function collectLayoutMetrics(page) {
       stepCount: steps.length,
       uniqueRouteTextCount: new Set(routeTexts).size,
       routeTexts,
+      routeSelectorBottom: selectorRect ? selectorRect.bottom : null,
+      lastRouteCardBottom: lastRouteRect ? lastRouteRect.bottom : null,
+      routesClippedBySelector: Boolean(selectorRect && lastRouteRect && lastRouteRect.bottom > selectorRect.bottom + 1),
       hasExplanationText: routeTexts.some((text) => /GraphHopper|OSM|OpenStreetMap|SQLite|Backend|dati reali|real data/i.test(text)),
       hasSummary: !!summary && visible(summary),
       summaryMarginBottom: summary ? parseFloat(getComputedStyle(summary).marginBottom) : 0,

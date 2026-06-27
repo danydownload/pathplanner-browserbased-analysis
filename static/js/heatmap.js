@@ -45,16 +45,18 @@ document.addEventListener("DOMContentLoaded", function() {
     ];
 
     var baseHeatOptions = {
-        radius: 55,
-        blur: 100,
+        radius: 75,
+        blur: 70,
         max: 1.0,
+        minOpacity: 0.32,
         gradient: HEAT_GRADIENT
     };
 
     var pollenHeatOptions = {
-        radius: 48,
-        blur: 85,
+        radius: 80,
+        blur: 75,
         max: 1.0,
+        minOpacity: 0.28,
         gradient: {
             0.0: '#d9f99d',
             0.25: '#84cc16',
@@ -146,7 +148,15 @@ document.addEventListener("DOMContentLoaded", function() {
     })();
 
     var AIR_SAMPLE_OFFSETS = [
-        [0, 0]
+        [0, 0],
+        [650, 0],
+        [-650, 0],
+        [0, 650],
+        [0, -650],
+        [920, 920],
+        [-920, 920],
+        [920, -920],
+        [-920, -920]
     ];
 
     function initializeLayerStates() {
@@ -331,18 +341,18 @@ document.addEventListener("DOMContentLoaded", function() {
             detail = config.emptyMessage;
         }
 
-        return '<div class="layer-legend-item" style="border:1px solid rgba(15,23,42,0.16);border-radius:8px;padding:8px 9px;margin-top:8px;background:rgba(255,255,255,0.72);">' +
-            '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;font-weight:700;">' +
+        return '<div class="layer-legend-item">' +
+            '<div class="layer-legend-heading">' +
                 '<span>' + escapeHtml(config.label) + '</span>' +
-                '<span style="font-size:0.74rem;color:#475569;">' + escapeHtml(config.unit) + '</span>' +
+                '<span class="layer-legend-unit">' + escapeHtml(config.unit) + '</span>' +
             '</div>' +
-            '<div style="height:8px;border-radius:999px;margin:7px 0 4px;background:' + buildGradientCss(config.gradientStops) + ';" aria-hidden="true"></div>' +
-            '<div style="display:flex;justify-content:space-between;font-size:0.72rem;color:#475569;">' +
+            '<div class="layer-legend-bar" style="background:' + buildGradientCss(config.gradientStops) + ';" aria-hidden="true"></div>' +
+            '<div class="layer-legend-scale">' +
                 '<span>Lower exposure</span><span>' + escapeHtml(config.highLabel) + '</span>' +
             '</div>' +
-            '<div style="font-size:0.75rem;color:#334155;margin-top:6px;line-height:1.25;">' + escapeHtml(config.meaning) + '</div>' +
-            '<div style="font-size:0.72rem;color:#64748b;margin-top:5px;line-height:1.25;">' + escapeHtml(detail) + '</div>' +
-            '<div style="font-size:0.68rem;color:#64748b;margin-top:4px;line-height:1.2;">' + escapeHtml(config.source) + '</div>' +
+            '<div class="layer-legend-meaning">' + escapeHtml(config.meaning) + '</div>' +
+            '<div class="layer-legend-detail">' + escapeHtml(detail) + '</div>' +
+            '<div class="layer-legend-source">' + escapeHtml(config.source) + '</div>' +
         '</div>';
     }
 
@@ -489,6 +499,24 @@ document.addEventListener("DOMContentLoaded", function() {
         removeHeatLayer('pollen');
     }
 
+    function focusLayerOnMap(layerId) {
+        var layerMarkerList = layerMarkers[layerId] || [];
+        if (!layerMarkerList.length || !map.fitBounds) {
+            return;
+        }
+        var bounds = L.latLngBounds(layerMarkerList.map(function(marker) {
+            return marker.getLatLng();
+        }));
+        if (!bounds.isValid()) {
+            return;
+        }
+        if (bounds.getNorthEast().equals(bounds.getSouthWest())) {
+            map.setView(bounds.getCenter(), Math.max(map.getZoom ? map.getZoom() : 13, 13), { animate: true });
+            return;
+        }
+        map.fitBounds(bounds.pad(0.35), { maxZoom: 14, animate: true });
+    }
+
     function activateLayer(layerId) {
         var heat = heatLayers[layerId];
         if (!heat) {
@@ -499,6 +527,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
         activeLayerIds.add(layerId);
         updateVisibleMarkers();
+        focusLayerOnMap(layerId);
         return true;
     }
 

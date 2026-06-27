@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-const baseURL = process.env.PP_BASE_URL || 'http://localhost:8039';
+const baseURL = process.env.PP_BASE_URL || 'http://127.0.0.1:8765';
 const screenshotDir = process.env.PP_SCREENSHOT_DIR || 'artifacts/playwright';
 
 test.setTimeout(90000);

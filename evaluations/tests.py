@@ -10,6 +10,8 @@ from .real_environment_service import (
     clear_environment_cache,
 )
 from .pollen_service import clear_pollen_cache
+from . import backend_astar
+from .backend_astar import PATIENT_CONDITIONS, _generate_graphhopper_routes, _remove_local_path_loops, _simplify_waypoints
 
 
 class MockJsonResponse:
@@ -23,6 +25,83 @@ class MockJsonResponse:
     def raise_for_status(self):
         if self.status_code >= 400:
             raise requests.HTTPError(f'HTTP {self.status_code}')
+
+
+class BackendAstarGeometryTests(TestCase):
+    def test_removes_short_local_loop_without_losing_endpoints(self):
+        path = [
+            {'lat': 44.640000, 'lon': 10.920000},
+            {'lat': 44.640900, 'lon': 10.920000},
+            {'lat': 44.641800, 'lon': 10.920000},
+            {'lat': 44.640050, 'lon': 10.920020},
+            {'lat': 44.639500, 'lon': 10.921000},
+        ]
+
+        cleaned = _remove_local_path_loops(path)
+
+        self.assertEqual(cleaned[0], path[0])
+        self.assertEqual(cleaned[-1], path[-1])
+        self.assertLess(len(cleaned), len(path))
+
+    def test_simplified_waypoints_are_not_too_close(self):
+        path = [
+            {'lat': 44.640000 + i * 0.00025, 'lon': 10.920000}
+            for i in range(18)
+        ]
+
+        waypoints = _simplify_waypoints(path, max_points=8, min_spacing_m=90)
+
+        self.assertEqual(waypoints[0], path[0])
+        self.assertEqual(waypoints[-1], path[-1])
+        self.assertLessEqual(len(waypoints), 8)
+        self.assertGreaterEqual(len(waypoints), 2)
+
+    def test_graphhopper_route_survives_environment_timeout(self):
+        def slow_environment_samples(start, goal):
+            time.sleep(0.05)
+            return []
+
+        start = {'lat': 44.6398102, 'lon': 10.9424172}
+        goal = {'lat': 44.6444776, 'lon': 10.9569078}
+        payload = {
+            'paths': [{
+                'points': {
+                    'coordinates': [
+                        [start['lon'], start['lat']],
+                        [10.9490, 44.6420],
+                        [goal['lon'], goal['lat']],
+                    ],
+                },
+                'distance': 1600,
+                'time': 1000000,
+            }]
+        }
+
+        with (
+            patch.object(backend_astar, 'BACKEND_ASTAR_INPUT_TIMEOUT_SECONDS', 0.01),
+            patch.object(backend_astar, '_graphhopper_route_payload', return_value=payload),
+            patch.object(backend_astar, '_fetch_poi_lists_parallel', return_value=({}, {})),
+            patch.object(backend_astar, '_fetch_walkability_features', return_value=([], None)),
+            patch.object(backend_astar, '_prefetch_environment_samples', side_effect=slow_environment_samples),
+        ):
+            result = _generate_graphhopper_routes(
+                start,
+                goal,
+                'respiratory',
+                PATIENT_CONDITIONS['respiratory'],
+                {},
+                5,
+                'walking',
+                1,
+                {'min_lat': 44.63, 'min_lon': 10.93, 'max_lat': 44.65, 'max_lon': 10.97},
+                [],
+                time.perf_counter(),
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['source'], 'graphhopper_candidate_routing')
+        self.assertEqual(len(result['routes']), 1)
+        self.assertEqual(result['routes'][0]['data_sources']['environment'], 'timed out or unavailable')
 
 
 @override_settings(OPENAQ_API_KEY='test-openaq-key')

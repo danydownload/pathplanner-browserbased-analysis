@@ -1,6 +1,6 @@
 const { test, expect } = require('@playwright/test');
 
-const baseURL = process.env.PP_BASE_URL || 'http://localhost:8032';
+const baseURL = process.env.PP_BASE_URL || 'http://127.0.0.1:8765';
 const screenshotDir = process.env.PP_SCREENSHOT_DIR || 'artifacts/playwright';
 
 test('address suggestions stay constrained to the sidebar and select coordinates', async ({ page }) => {

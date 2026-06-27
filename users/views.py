@@ -67,7 +67,7 @@ class ViewProfileView(CustomRequired, ListView):
 
     def get_queryset(self):
         profile = self.request.user.userprofile
-        return profile.preferences.all()
+        return profile.preferences.all().order_by('name', 'id')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -100,7 +100,6 @@ class EditProfileView(LoginRequiredMixin, UpdateView):
         user = self.request.user
         user.first_name = form.cleaned_data.get('first_name', '')
         user.last_name = form.cleaned_data.get('last_name', '')
-        user.email = form.cleaned_data.get('email', '')
         user.save()
 
         response = super().form_valid(form)

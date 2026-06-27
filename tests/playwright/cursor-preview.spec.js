@@ -3,7 +3,7 @@ const fs = require('fs');
 
 test.skip(true, 'Legacy preview spec uses the retired route-selector UI; current preview coverage lives in pathplanner-full.spec.js.');
 
-const baseURL = process.env.PP_BASE_URL || 'http://localhost:8024';
+const baseURL = process.env.PP_BASE_URL || 'http://127.0.0.1:8765';
 const screenshotDir = process.env.PP_SCREENSHOT_DIR || 'artifacts/playwright';
 fs.mkdirSync(screenshotDir, { recursive: true });
 

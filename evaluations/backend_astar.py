@@ -883,24 +883,89 @@ def _add_route_penalties(node_penalties: Dict[str, float], path: Sequence[Dict[s
             node_penalties[neighbor_id] = node_penalties.get(neighbor_id, 0.0) + amount / 2
 
 
-def _simplify_waypoints(path: Sequence[Dict[str, float]], max_points: int = 8) -> List[Dict[str, float]]:
+def _remove_local_path_loops(
+    path: Sequence[Dict[str, float]],
+    close_m: float = 30.0,
+    min_detour_m: float = 65.0,
+    lookahead: int = 14,
+) -> List[Dict[str, float]]:
+    """Remove tiny local self-loops that become 0 m via-points in LRM."""
+    cleaned = [{'lat': p['lat'], 'lon': p['lon']} for p in path]
+    if len(cleaned) < 4:
+        return cleaned
+
+    changed = True
+    passes = 0
+    while changed and passes < 5:
+        changed = False
+        passes += 1
+
+        i = 0
+        while i < len(cleaned) - 2:
+            best_j = None
+            segment_distance = 0.0
+            max_j = min(len(cleaned) - 1, i + lookahead)
+            for j in range(i + 1, max_j + 1):
+                segment_distance += haversine_m(cleaned[j - 1], cleaned[j])
+                if j <= i + 1:
+                    continue
+                chord = haversine_m(cleaned[i], cleaned[j])
+                if chord <= close_m and segment_distance - chord >= min_detour_m:
+                    best_j = j
+            if best_j is not None:
+                cleaned = cleaned[:i + 1] + cleaned[best_j:]
+                changed = True
+                continue
+            i += 1
+
+        i = 1
+        while i < len(cleaned) - 1:
+            direct = haversine_m(cleaned[i - 1], cleaned[i + 1])
+            detour = haversine_m(cleaned[i - 1], cleaned[i]) + haversine_m(cleaned[i], cleaned[i + 1])
+            if direct <= close_m and detour - direct >= min_detour_m:
+                cleaned.pop(i)
+                changed = True
+                continue
+            i += 1
+
+    return cleaned
+
+
+def _simplify_waypoints(
+    path: Sequence[Dict[str, float]],
+    max_points: int = 6,
+    min_spacing_m: float = 90.0,
+) -> List[Dict[str, float]]:
     if len(path) <= max_points:
-        return [{'lat': p['lat'], 'lon': p['lon']} for p in path]
-    cumulative = [0.0]
-    for i in range(1, len(path)):
-        cumulative.append(cumulative[-1] + haversine_m(path[i - 1], path[i]))
-    total = cumulative[-1]
-    if total <= 0:
-        return [{'lat': path[0]['lat'], 'lon': path[0]['lon']}, {'lat': path[-1]['lat'], 'lon': path[-1]['lon']}]
-    out = [path[0]]
-    interior = max_points - 2
-    for i in range(1, interior + 1):
-        target = total * i / (interior + 1)
-        index = next((idx for idx, distance in enumerate(cumulative) if distance >= target), None)
-        if index and index < len(path) - 1:
-            out.append(path[index])
-    out.append(path[-1])
-    return [{'lat': p['lat'], 'lon': p['lon']} for p in out]
+        points = [{'lat': p['lat'], 'lon': p['lon']} for p in path]
+    else:
+        cumulative = [0.0]
+        for i in range(1, len(path)):
+            cumulative.append(cumulative[-1] + haversine_m(path[i - 1], path[i]))
+        total = cumulative[-1]
+        if total <= 0:
+            return [{'lat': path[0]['lat'], 'lon': path[0]['lon']}, {'lat': path[-1]['lat'], 'lon': path[-1]['lon']}]
+        points = [path[0]]
+        interior = max_points - 2
+        for i in range(1, interior + 1):
+            target = total * i / (interior + 1)
+            index = next((idx for idx, distance in enumerate(cumulative) if distance >= target), None)
+            if index and index < len(path) - 1:
+                points.append(path[index])
+        points.append(path[-1])
+
+    if len(points) <= 2:
+        return [{'lat': p['lat'], 'lon': p['lon']} for p in points]
+
+    filtered = [points[0]]
+    for point in points[1:-1]:
+        if (
+            haversine_m(filtered[-1], point) >= min_spacing_m
+            and haversine_m(point, points[-1]) >= min_spacing_m
+        ):
+            filtered.append(point)
+    filtered.append(points[-1])
+    return [{'lat': p['lat'], 'lon': p['lon']} for p in filtered]
 
 
 def _graphhopper_route_payload(
@@ -1122,17 +1187,33 @@ def _generate_graphhopper_routes(
         env_future = executor.submit(_prefetch_environment_samples, start, goal)
         walkability_future = executor.submit(_fetch_walkability_features, bbox)
         input_deadline = time.perf_counter() + BACKEND_ASTAR_INPUT_TIMEOUT_SECONDS
-        poi_lists, poi_sources = poi_future.result(timeout=BACKEND_ASTAR_INPUT_TIMEOUT_SECONDS)
+
+        poi_lists, poi_sources = {}, {}
+        env_samples = []
+        walkability_features, walkability_source = [], None
+
+        try:
+            poi_lists, poi_sources = poi_future.result(timeout=BACKEND_ASTAR_INPUT_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            poi_future.cancel()
+
         remaining = max(0.1, input_deadline - time.perf_counter())
-        env_samples = env_future.result(timeout=remaining)
+        try:
+            env_samples = env_future.result(timeout=remaining)
+        except concurrent.futures.TimeoutError:
+            env_future.cancel()
+
         remaining = max(0.1, input_deadline - time.perf_counter())
-        walkability_features, walkability_source = walkability_future.result(timeout=remaining)
-    except concurrent.futures.TimeoutError as exc:
-        raise TimeoutError('GraphHopper candidate scoring lookup timed out') from exc
+        try:
+            walkability_features, walkability_source = walkability_future.result(timeout=remaining)
+        except concurrent.futures.TimeoutError:
+            walkability_future.cancel()
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 
     data_sources = _aggregate_env_sources(env_samples)
+    if not env_samples:
+        data_sources['environment'] = 'timed out or unavailable'
     if poi_lists:
         for category, pois in poi_lists.items():
             if pois:
@@ -1150,7 +1231,10 @@ def _generate_graphhopper_routes(
             continue
         path[0] = {'lat': start['lat'], 'lon': start['lon']}
         path[-1] = {'lat': goal['lat'], 'lon': goal['lon']}
-        distance = _safe_float(raw.get('distance')) or calculate_path_length(path)
+        path = _remove_local_path_loops(path)
+        path[0] = {'lat': start['lat'], 'lon': start['lon']}
+        path[-1] = {'lat': goal['lat'], 'lon': goal['lon']}
+        distance = calculate_path_length(path) or (_safe_float(raw.get('distance')) or 0)
         signature = _path_signature(path, precision=5)
         if signature in signatures or _is_similar_route(path, distance, routes):
             continue

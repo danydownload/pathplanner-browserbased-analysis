@@ -86,12 +86,15 @@ function convertBackendAstarRoutesToPlannerFormat(payload, patientCondition, tra
     const backendRoutes = Array.isArray(payload?.routes) ? payload.routes : [];
 
     backendRoutes.forEach((route, index) => {
-        const routePoints = (Array.isArray(route.waypoints) && route.waypoints.length >= 2)
-            ? route.waypoints
-            : route.path;
-        if (!Array.isArray(routePoints) || routePoints.length < 2) {
+        const pathPoints = (Array.isArray(route.path) && route.path.length >= 2)
+            ? route.path
+            : route.waypoints;
+        if (!Array.isArray(pathPoints) || pathPoints.length < 2) {
             return;
         }
+        const routePoints = (Array.isArray(route.waypoints) && route.waypoints.length >= 2)
+            ? route.waypoints
+            : [pathPoints[0], pathPoints[pathPoints.length - 1]];
 
         const waypointSignature = buildMapboxWaypointSignature(routePoints);
         if (waypointSignature && acceptedWaypointSignatures.has(waypointSignature)) {
@@ -102,17 +105,17 @@ function convertBackendAstarRoutesToPlannerFormat(payload, patientCondition, tra
             acceptedWaypointSignatures.add(waypointSignature);
         }
 
-        const pathLength = calculateRouteLength(route.path || routePoints);
+        const pathLength = calculateRouteLength(pathPoints);
         routes.push({
             name: index === 0
                 ? `Backend Environmental A* Route`
                 : `Backend Environmental A* Alternative ${index + 1}`,
             description:
                 `Backend OSM street-graph A* ` +
-                `(${route.path_node_count || routePoints.length} nodes, ${payload.timing_ms || '?'} ms)`,
+                `(${route.path_node_count || pathPoints.length} nodes, ${payload.timing_ms || '?'} ms)`,
             waypoints: routePoints.map((p) => L.latLng(p.lat, p.lon)),
             environmentalScore: Number.isFinite(route.astar_cost) ? route.astar_cost : index,
-            coordinates: routePoints.map((p) => ({ lat: p.lat, lng: p.lon })),
+            coordinates: pathPoints.map((p) => ({ lat: p.lat, lng: p.lon })),
             environmentDataList: [],
             transportMode: route.transport_mode || transportMode,
             length: pathLength,

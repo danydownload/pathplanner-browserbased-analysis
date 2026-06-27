@@ -15,10 +15,10 @@ PATHOLOGY_CHOICES = [
 # Class representing an object of type "UserPreferences"
 class UserPreferences(models.Model):
     name = models.CharField(max_length=50, null=True)
-    nightlife = models.FloatField(default=0, choices=[(-1, 'Strongly against'), (-0.5, 'Against'), (0, 'Neutral'), (0.5, 'In favor'), (1, 'Strongly in favor')])
-    tourism = models.FloatField(default=0, choices=[(-1, 'Strongly against'), (-0.5, 'Against'), (0, 'Neutral'), (0.5, 'In favor'), (1, 'Strongly in favor')])
-    entertainment = models.FloatField(default=0, choices=[(-1, 'Strongly against'), (-0.5, 'Against'), (0, 'Neutral'), (0.5, 'In favor'), (1, 'Strongly in favor')])
-    nature = models.FloatField(default=0, choices=[(-1, 'Strongly against'), (-0.5, 'Against'), (0, 'Neutral'), (0.5, 'In favor'), (1, 'Strongly in favor')])
+    nightlife = models.FloatField(default=0)
+    tourism = models.FloatField(default=0)
+    entertainment = models.FloatField(default=0)
+    nature = models.FloatField(default=0)
     
     # The following preferences are not yet implemented
     avoid_highways = models.FloatField(default=0, choices=[(-1, 'Strongly against'), (-0.5, 'Against'), (0, 'Neutral'), (0.5, 'In favor'), (1, 'Strongly in favor')])
@@ -27,7 +27,7 @@ class UserPreferences(models.Model):
     scenic_route = models.FloatField(default=0, choices=[(-1, 'Strongly against'), (-0.5, 'Against'), (0, 'Neutral'), (0.5, 'In favor'), (1, 'Strongly in favor')])
     prefer_lit_routes = models.FloatField(default=0, choices=[(-1, 'Strongly against'), (-0.5, 'Against'), (0, 'Neutral'), (0.5, 'In favor'), (1, 'Strongly in favor')])
     prefer_parks = models.FloatField(default=0, choices=[(-1, 'Strongly against'), (-0.5, 'Against'), (0, 'Neutral'), (0.5, 'In favor'), (1, 'Strongly in favor')])
-    hospital = models.FloatField(default=0, choices=[(-1, 'Strongly against'), (-0.5, 'Against'), (0, 'Neutral'), (0.5, 'In favor'), (1, 'Strongly in favor')])
+    hospital = models.FloatField(default=0)
 
     def __str__(self):
         return self.name

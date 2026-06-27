@@ -1,5 +1,6 @@
 {% extends "baseUser.html" %}
 {% load crispy_forms_tags %}
+{% load static %}
 
 {% block title %}
 Edit profile
@@ -16,6 +17,18 @@ Edit profile
 {% block form_content %}
 <section class="form-section">
     <h3 class="form-section-title">Personal info</h3>
+    <div class="avatar-edit-row">
+        <div class="avatar-preview">
+            {% if object.profile_picture %}
+            <img src="{{ object.profile_picture.url }}" alt="Current profile picture">
+            {% else %}
+            <img src="{% static 'img/profile_pictures/default_profile_picture.png' %}" alt="Default profile picture">
+            {% endif %}
+        </div>
+        <div class="avatar-upload">
+            {{ form.profile_picture|as_crispy_field }}
+        </div>
+    </div>
     <div class="form-row">
         <div class="form-col">
             {{ form.first_name|as_crispy_field }}

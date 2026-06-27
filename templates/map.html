@@ -168,15 +168,27 @@
                     <div id="dropUser" class="dropdown">
                         <a href="#" class="user-toggle dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                             <span class="user-avatar">
-                            {% if user.userprofile.profile_picture %}
+                            {% if user.is_authenticated and user.userprofile.profile_picture %}
                                 <img src="{{ user.userprofile.profile_picture.url }}" alt="Profile picture" width="47" height="47" class="rounded-circle">
                             {% else %}
                                 <img src="{% static 'img/profile_pictures/default_profile_picture.png' %}" alt="Default profile picture" width="47" height="47" class="rounded-circle">
                             {% endif %}
                             </span>
                             <span>
-                                <strong class="d-block">User</strong>
-                                <span class="user-caption">Account and exports</span>
+                                <strong class="d-block">
+                                    {% if user.is_authenticated %}
+                                        {% firstof user.get_full_name user.username user.email "User" %}
+                                    {% else %}
+                                        Guest
+                                    {% endif %}
+                                </strong>
+                                <span class="user-caption">
+                                    {% if user.is_authenticated %}
+                                        {% firstof user.email "Account and exports" %}
+                                    {% else %}
+                                        Login or signup
+                                    {% endif %}
+                                </span>
                             </span>
                         </a>
                         <ul class="dropdown-menu text-small shadow">

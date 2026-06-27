@@ -1,4 +1,3 @@
-import * as Preferences from '../master/preferences.js';
 import * as PatientCondition from '../enums/patientCondition.js'
 
 const DEFAULT = {
@@ -26,13 +25,6 @@ async function getPatientCondition(
     console.log(`Patient condition changed to: ${patientCondition}`);
 
     if (patientConditionSelect.value !== "none") {
-        if (preferenceSet) {
-            preferenceSet.value = preferenceSet.querySelector('option[value="balanced"]')
-                ? "balanced"
-                : (preferenceSet.options[0]?.value || "");
-        }
-
-        await Preferences.setCurrentPreferences(currentPreferences, Preferences.DEFAULT);
         return PatientCondition.Values[patientCondition];
     } else {
         setCurrentPatientCondition(currentPatientCondition, DEFAULT)

@@ -301,20 +301,14 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         }
 
-        let patientRestored = false;
-        if (patientConditionSelect) {
-            patientRestored = state.restoreValue('patientCondition', patientConditionSelect);
-            if (patientRestored) {
-                await applyPatientConditionSelection(false);
-            }
+        if (preferenceSet && state.restoreValue('preferenceSet', preferenceSet)) {
+            const preferences = await Preferences.getPreferences(preferenceSet.value);
+            await Preferences.setCurrentPreferences(currentPreferences, preferences);
+            preferenceSet.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
-        if ((!patientRestored || patientConditionSelect?.value === 'none') && preferenceSet) {
-            if (state.restoreValue('preferenceSet', preferenceSet)) {
-                const preferences = await Preferences.getPreferences(preferenceSet.value);
-                await Preferences.setCurrentPreferences(currentPreferences, preferences);
-                preferenceSet.dispatchEvent(new Event('change', { bubbles: true }));
-            }
+        if (patientConditionSelect && state.restoreValue('patientCondition', patientConditionSelect)) {
+            await applyPatientConditionSelection(false);
         }
 
         state.bindValue('transportMode', transportModeSelect);
