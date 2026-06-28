@@ -724,14 +724,14 @@ function routePoiSummaryMetric(label, summary, fallbackDistanceM) {
         const count = Number(summary.count);
         if (count > 0) {
             const nearest = finiteNumber(summary.nearestM);
-            const suffix = nearest !== null ? `, nearest ${formatDistanceMeters(nearest)}` : '';
+            const suffix = nearest !== null ? ` · ${formatDistanceMeters(nearest)}` : '';
             return { label, value: `${count} on route${suffix}` };
         }
         return { label, value: 'none on route' };
     }
 
     const fallback = finiteNumber(fallbackDistanceM);
-    return fallback !== null ? { label, value: `nearest ${formatDistanceMeters(fallback)}` } : null;
+    return fallback !== null ? { label, value: formatDistanceMeters(fallback) } : null;
 }
 
 function routeContextMetrics(route) {
@@ -850,9 +850,9 @@ function routeExposureCardHtml(exposure, route) {
         : '<span class="route-exposure-metric"><strong>Status</strong>N/D</span>';
     const contextMetrics = routeContextMetrics(route);
     const context = contextMetrics.length
-        ? `<div class="route-context-metrics">${contextMetrics.map(metric => (
+        ? contextMetrics.map(metric => (
             `<span class="route-context-metric"><strong>${escapeHtml(metric.label)}</strong>${escapeHtml(metric.value)}</span>`
-        )).join('')}</div>`
+        )).join('')
         : '';
     return `
         <div class="route-exposure-card route-exposure-card--${escapeHtml(state.level || 'unknown')}">
@@ -860,8 +860,7 @@ function routeExposureCardHtml(exposure, route) {
                 <span class="route-exposure-kicker">Route exposure</span>
                 <strong>${escapeHtml(state.label || 'Exposure N/D')}</strong>
             </div>
-            <div class="route-exposure-metrics">${metrics}</div>
-            ${context}
+            <div class="route-exposure-metrics">${metrics}${context}</div>
             <div class="route-exposure-detail">${escapeHtml(state.detail || '')}</div>
         </div>
     `;

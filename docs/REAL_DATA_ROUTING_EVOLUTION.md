@@ -1235,7 +1235,11 @@ Air-quality layers are rendered as city-view heat surfaces:
   center;
 - that fallback grid always includes the selected city/start center first, then
   surrounding sample points, so the city being inspected is not skipped by an
-  even-sized grid.
+  even-sized grid;
+- when both start and arrival are selected, the fallback grid is rebuilt over the
+  start-to-arrival corridor and explicitly includes start, midpoint, and arrival;
+  without a selected route, it stays spread over the current city/geolocation
+  context.
 
 Selected routes now also get a route-specific exposure summary:
 

@@ -129,13 +129,16 @@ document.addEventListener("DOMContentLoaded", function() {
         loaded: false,
         error: null,
         stationCount: 0,
-        sourceLabel: 'stations'
+        sourceLabel: 'stations',
+        sampledFallback: false
     };
 
     var AIR_SAMPLE_GRID_SIZE = 4;
     var CITY_HEAT_GRID_SIZE = 8;
     var CITY_HEAT_RADIUS_M = 7000;
     var MAX_AIR_SAMPLE_SPAN_M = 16000;
+    var sampledAirRefreshTimer = null;
+    var sampledAirRefreshToken = 0;
 
     function initializeLayerStates() {
         ALL_LAYER_IDS.forEach(function(layerId) {
@@ -257,6 +260,37 @@ document.addEventListener("DOMContentLoaded", function() {
         };
     }
 
+    function coordinateFromInput(id) {
+        var input = document.getElementById(id);
+        if (!input || !input.dataset.lat || !input.dataset.lon) {
+            return null;
+        }
+        var lat = parseFloat(input.dataset.lat);
+        var lon = parseFloat(input.dataset.lon);
+        return isFinite(lat) && isFinite(lon) ? { lat: lat, lon: lon, lng: lon } : null;
+    }
+
+    function selectedRouteAirPoints() {
+        var start = coordinateFromInput('startPoint');
+        var end = coordinateFromInput('endPoint');
+        if (!start || !end) {
+            return [];
+        }
+        return [
+            start,
+            { lat: (start.lat + end.lat) / 2, lon: (start.lon + end.lon) / 2, lng: (start.lon + end.lon) / 2 },
+            end
+        ];
+    }
+
+    function selectedRouteAirBounds() {
+        var points = selectedRouteAirPoints();
+        if (points.length < 2) {
+            return null;
+        }
+        return expandBounds(boundsFromSourcePoints(points), 0.45);
+    }
+
     function citySizedAirBounds() {
         var center = resolveAirLayerCenter();
         var visibleBounds = mapBoundsAsPlainObject();
@@ -318,11 +352,14 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     function buildAirSamplePoints() {
-        var bounds = citySizedAirBounds();
+        var routePoints = selectedRouteAirPoints();
+        var bounds = selectedRouteAirBounds() || citySizedAirBounds();
         var center = resolveAirLayerCenter();
-        var points = [{ lat: center.lat, lon: center.lon }];
+        var points = routePoints.length ? routePoints : [{ lat: center.lat, lon: center.lon }];
         var seen = {};
-        seen[samplePointKey(points[0])] = true;
+        points.forEach(function(point) {
+            seen[samplePointKey(point)] = true;
+        });
 
         buildGridPoints(bounds, AIR_SAMPLE_GRID_SIZE).forEach(function(point) {
             var key = samplePointKey(point);
@@ -1011,8 +1048,11 @@ document.addEventListener("DOMContentLoaded", function() {
 
     function fetchSampledAirQualityLayers() {
         var samplePoints = buildAirSamplePoints();
+        var routeContext = selectedRouteAirPoints().length >= 2;
 
-        renderLayerUI('No saved station readings found. Loading real air-quality samples for the selected city center and visible area...');
+        renderLayerUI(routeContext
+            ? 'No saved station readings found. Loading real air-quality samples from start to arrival...'
+            : 'No saved station readings found. Loading real air-quality samples for the selected city center and visible area...');
 
         return Promise.all(samplePoints.map(function(point, index) {
             var url = '/api/air_quality/?lat=' + encodeURIComponent(point.lat) +
@@ -1041,6 +1081,65 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
+    function refreshSampledAirLayersForCurrentContext() {
+        if (!stationDataState.sampledFallback) {
+            return;
+        }
+
+        var token = ++sampledAirRefreshToken;
+        var activeAirLayerIds = AIR_LAYER_IDS.filter(function(layerId) {
+            return activeLayerIds.has(layerId);
+        });
+
+        stationDataState.loading = true;
+        AIR_LAYER_IDS.forEach(function(layerId) {
+            removeHeatLayer(layerId);
+            heatLayers[layerId] = null;
+            layerMarkers[layerId] = [];
+            layerStates[layerId].status = 'loading';
+            layerStates[layerId].message = 'Refreshing real samples for the selected area...';
+        });
+        updateVisibleMarkers();
+        renderLayerUI('Refreshing real air-quality samples for the selected area...');
+
+        fetchSampledAirQualityLayers().then(function(samples) {
+            if (token !== sampledAirRefreshToken) {
+                return;
+            }
+            stationDataState.loading = false;
+            stationDataState.loaded = true;
+            stationDataState.error = null;
+            stationDataState.stationCount = samples.length;
+            stationDataState.sourceLabel = samples.length === 1 ? 'real sample' : 'real samples';
+            stationDataState.sampledFallback = true;
+
+            buildAirQualityLayers(samples);
+            activeAirLayerIds.forEach(function(layerId) {
+                activateLayer(layerId);
+            });
+            applyPendingAirLayers();
+            renderLayerUI();
+        }).catch(function(error) {
+            if (token !== sampledAirRefreshToken) {
+                return;
+            }
+            stationDataState.loading = false;
+            stationDataState.error = error && error.message ? error.message : String(error);
+            resetAirLayersForError('Air-quality samples could not be refreshed.');
+            renderLayerUI('Air-quality samples could not be refreshed. Pollen can still be requested.');
+        });
+    }
+
+    function scheduleSampledAirLayerRefresh() {
+        if (!stationDataState.sampledFallback) {
+            return;
+        }
+        if (sampledAirRefreshTimer) {
+            clearTimeout(sampledAirRefreshTimer);
+        }
+        sampledAirRefreshTimer = setTimeout(refreshSampledAirLayersForCurrentContext, 250);
+    }
+
     // Register all toggles before any API returns so chips never go dead.
     ALL_LAYER_IDS.forEach(registerLayerButton);
     renderLayerUI();
@@ -1049,6 +1148,7 @@ document.addEventListener("DOMContentLoaded", function() {
     var pollenStartInput = document.getElementById('startPoint');
     if (pollenStartInput) {
         pollenStartInput.addEventListener('change', function() {
+            scheduleSampledAirLayerRefresh();
             if (!activeLayerIds.has('pollen') || pollenState.loading) {
                 return;
             }
@@ -1069,6 +1169,10 @@ document.addEventListener("DOMContentLoaded", function() {
                 renderLayerUI(hasData ? null : layerStates.pollen.message);
             });
         });
+    }
+    var airEndInput = document.getElementById('endPoint');
+    if (airEndInput) {
+        airEndInput.addEventListener('change', scheduleSampledAirLayerRefresh);
     }
 
     // Fetch real station data and build pollutant heatmaps. If the local DB has
@@ -1091,6 +1195,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 stationDataState.error = null;
                 stationDataState.stationCount = data.length;
                 stationDataState.sourceLabel = data.length === 1 ? 'station' : 'stations';
+                stationDataState.sampledFallback = false;
 
                 buildAirQualityLayers(data);
                 applyPendingAirLayers();
@@ -1103,6 +1208,7 @@ document.addEventListener("DOMContentLoaded", function() {
                 stationDataState.error = null;
                 stationDataState.stationCount = samples.length;
                 stationDataState.sourceLabel = samples.length === 1 ? 'real sample' : 'real samples';
+                stationDataState.sampledFallback = true;
 
                 buildAirQualityLayers(samples);
                 applyPendingAirLayers();

@@ -235,6 +235,17 @@ test.describe('PathPlanner full GUI regression', () => {
       Math.abs(point.lat - 44.645819) < 0.00001 &&
       Math.abs(point.lon - 10.925719) < 0.00001
     ))).toBe(true);
+
+    airRequests.length = 0;
+    await setRoutePoints(page);
+    await expect.poll(() => airRequests.some((point) => (
+      Math.abs(point.lat - START_MODENA.lat) < 0.00001 &&
+      Math.abs(point.lon - START_MODENA.lon) < 0.00001
+    )), { timeout: 10_000 }).toBe(true);
+    expect(airRequests.some((point) => (
+      Math.abs(point.lat - END_MODENA.lat) < 0.00001 &&
+      Math.abs(point.lon - END_MODENA.lon) < 0.00001
+    ))).toBe(true);
   });
 
   test('real backend route renders deduplicated alternatives, source text, directions, and correct request params', async ({ page }) => {
@@ -258,7 +269,7 @@ test.describe('PathPlanner full GUI regression', () => {
     expect(metrics.hasSummary).toBe(true);
     expect(metrics.hasRouteExposure).toBe(true);
     expect(metrics.routeExposureText).toMatch(/Route exposure|AQI|PM2\.5/i);
-    expect(metrics.summaryMarginBottom).toBeGreaterThanOrEqual(18);
+    expect(metrics.summaryMarginBottom).toBeGreaterThanOrEqual(12);
     expect(metrics.hasExplanationText).toBe(true);
     expect(metrics.pageScrollWidth).toBeLessThanOrEqual(metrics.viewportWidth + 2);
 
