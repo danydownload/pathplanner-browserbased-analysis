@@ -699,6 +699,71 @@ function formatExposureNumber(value, unit = '') {
     return unit ? `${text} ${unit}` : text;
 }
 
+function finiteNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+}
+
+function routeRealDataPercent(route) {
+    const explicit = finiteNumber(route?.realDataPercentage);
+    if (explicit !== null) {
+        return Math.max(0, Math.min(100, explicit));
+    }
+
+    const list = Array.isArray(route?.environmentDataList) ? route.environmentDataList : [];
+    if (!list.length) {
+        return null;
+    }
+
+    const realCount = list.filter(point => point && !point.isDefault && !point.isSynthetic && !point.isEnhanced).length;
+    return (realCount / list.length) * 100;
+}
+
+function routePoiSummaryMetric(label, summary, fallbackDistanceM) {
+    if (summary?.status === 'available' && Number.isFinite(Number(summary.count))) {
+        const count = Number(summary.count);
+        if (count > 0) {
+            const nearest = finiteNumber(summary.nearestM);
+            const suffix = nearest !== null ? `, nearest ${formatDistanceMeters(nearest)}` : '';
+            return { label, value: `${count} on route${suffix}` };
+        }
+        return { label, value: 'none on route' };
+    }
+
+    const fallback = finiteNumber(fallbackDistanceM);
+    return fallback !== null ? { label, value: `nearest ${formatDistanceMeters(fallback)}` } : null;
+}
+
+function routeContextMetrics(route) {
+    if (!route) {
+        return [];
+    }
+
+    const explanation = route.backendExplanation || {};
+    const nearest = explanation.nearest_pois_m || {};
+    const onRoute = route.onRoutePoiSummary || {};
+    const metrics = [];
+    const parks = routePoiSummaryMetric('Parks', onRoute.parks, nearest.nature);
+    const hospitals = routePoiSummaryMetric('Care', onRoute.hospitals, nearest.hospital);
+    if (parks) metrics.push(parks);
+    if (hospitals) metrics.push(hospitals);
+
+    const walkability = explanation.walkability || {};
+    const featureCount = finiteNumber(walkability.feature_count);
+    if (featureCount !== null && featureCount > 0) {
+        metrics.push({ label: 'Walkability', value: `${Math.round(featureCount)} OSM features` });
+    } else if (finiteNumber(walkability.penalty) !== null && Number(walkability.penalty) > 0) {
+        metrics.push({ label: 'Walkability', value: `penalty ${Math.round(Number(walkability.penalty))}` });
+    }
+
+    const dataPercent = routeRealDataPercent(route);
+    if (dataPercent !== null) {
+        metrics.push({ label: 'Data', value: `${Math.round(dataPercent)}% real` });
+    }
+
+    return metrics.slice(0, 4);
+}
+
 function getRouteExposureCoordinates(route) {
     const coords = getNormalizedRouteLatLonCoordinates(route);
     if (!coords.length) return [];
@@ -776,13 +841,19 @@ function summarizeRouteExposure(payload) {
     };
 }
 
-function routeExposureCardHtml(exposure) {
+function routeExposureCardHtml(exposure, route) {
     const state = exposure || { status: 'loading', level: 'unknown', label: 'Loading exposure', detail: 'Sampling environmental data along this path...', metrics: [] };
     const metrics = Array.isArray(state.metrics) && state.metrics.length
         ? state.metrics.map(metric => (
             `<span class="route-exposure-metric"><strong>${escapeHtml(metric.label)}</strong>${escapeHtml(metric.value)}</span>`
         )).join('')
         : '<span class="route-exposure-metric"><strong>Status</strong>N/D</span>';
+    const contextMetrics = routeContextMetrics(route);
+    const context = contextMetrics.length
+        ? `<div class="route-context-metrics">${contextMetrics.map(metric => (
+            `<span class="route-context-metric"><strong>${escapeHtml(metric.label)}</strong>${escapeHtml(metric.value)}</span>`
+        )).join('')}</div>`
+        : '';
     return `
         <div class="route-exposure-card route-exposure-card--${escapeHtml(state.level || 'unknown')}">
             <div class="route-exposure-heading">
@@ -790,6 +861,7 @@ function routeExposureCardHtml(exposure) {
                 <strong>${escapeHtml(state.label || 'Exposure N/D')}</strong>
             </div>
             <div class="route-exposure-metrics">${metrics}</div>
+            ${context}
             <div class="route-exposure-detail">${escapeHtml(state.detail || '')}</div>
         </div>
     `;
@@ -803,7 +875,7 @@ function renderRouteExposureSummary(route, summary) {
         host.className = 'route-exposure-host';
         summary.appendChild(host);
     }
-    host.innerHTML = routeExposureCardHtml(route.routeExposure);
+    host.innerHTML = routeExposureCardHtml(route.routeExposure, route);
 }
 
 async function fetchRouteExposure(route, summary) {
@@ -1332,16 +1404,40 @@ function renderOnRoutePanel(route) {
         return;
     }
 
+    route.onRoutePoiSummary = {};
+
     // Token guards against a newer route replacing this one mid-fetch.
     const renderToken = {};
     container._onRouteToken = renderToken;
 
     ON_ROUTE_POI_CATEGORIES.forEach((category) => {
-        renderOnRoutePoiCategory(container, category, coordinates, renderToken);
+        renderOnRoutePoiCategory(container, category, coordinates, renderToken, route);
     });
 }
 
-async function renderOnRoutePoiCategory(container, category, coordinates, renderToken) {
+function updateRoutePoiSummary(route, category, fetchResult) {
+    if (!route || !category) {
+        return;
+    }
+
+    if (!route.onRoutePoiSummary) {
+        route.onRoutePoiSummary = {};
+    }
+
+    const items = Array.isArray(fetchResult?.items) ? fetchResult.items : [];
+    const distances = items
+        .map(item => finiteNumber(item?.distanceM))
+        .filter(value => value !== null);
+    route.onRoutePoiSummary[category.id] = {
+        status: fetchResult?.status || 'unavailable',
+        count: fetchResult?.status === 'available' ? items.length : 0,
+        nearestM: distances.length ? Math.min(...distances) : null,
+    };
+
+    renderRouteExposureSummary(route, document.getElementById('directionsSummary'));
+}
+
+async function renderOnRoutePoiCategory(container, category, coordinates, renderToken, route) {
     const section = L.DomUtil.create('div', 'on-route-category', container);
     const title = L.DomUtil.create('div', 'on-route-category-title', section);
     title.textContent = category.title;
@@ -1372,6 +1468,7 @@ async function renderOnRoutePoiCategory(container, category, coordinates, render
         return;
     }
     loading.remove();
+    updateRoutePoiSummary(route, category, fetchResult);
 
     const items = fetchResult.items;
     if (fetchResult.status !== 'available') {

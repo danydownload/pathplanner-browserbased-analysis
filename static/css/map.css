@@ -2187,6 +2187,13 @@ body.right-sidebar-open.directions-open .directions-panel {
     gap: 6px;
 }
 
+.route-context-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 6px;
+    padding-top: 2px;
+}
+
 .directions-summary .route-exposure-metric {
     display: grid;
     gap: 2px;
@@ -2198,9 +2205,28 @@ body.right-sidebar-open.directions-open .directions-panel {
     line-height: 1.2;
 }
 
+.directions-summary .route-context-metric {
+    display: grid;
+    gap: 2px;
+    align-items: start;
+    padding: 7px 8px;
+    color: #dbeafe;
+    background: rgba(15, 23, 42, 0.28);
+    border: 1px solid rgba(191, 219, 254, 0.2);
+    border-radius: 7px;
+    font-size: 0.72rem;
+    line-height: 1.2;
+}
+
 .route-exposure-metric strong {
     color: #bfdbfe;
     font-size: 0.66rem;
+    text-transform: uppercase;
+}
+
+.route-context-metric strong {
+    color: #93c5fd;
+    font-size: 0.64rem;
     text-transform: uppercase;
 }
 

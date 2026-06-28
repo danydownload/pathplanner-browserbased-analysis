@@ -1242,6 +1242,14 @@ Selected routes now also get a route-specific exposure summary:
 - the panel shows route-level AQI, PM2.5, NO2, O3, and pollen when available;
 - the selected route line is recolored green/amber/red from the route exposure
   level, while the path remains usable if the exposure lookup times out.
+- the same card also shows route context from real routing data:
+  - nearest green/park and hospital distances from the backend explanation;
+  - real on-route park/hospital counts once the `/api/pois` lookups complete;
+  - the percentage of real environmental data used for the route.
+
+This means the map layer answers “what is the city exposure surface here?” while
+the selected-route card answers “what exposure and nearby clinical/green context
+does this exact path have?”.
 
 This avoids hiding useful demo controls while making the product meaning clearer:
 route styles describe a user's preferred route character, while clinical profiles
