@@ -38,6 +38,25 @@ MAPBOX_ACCESS_TOKEN=<token-mapbox>
 OPENAQ_API_KEY=<opzionale>
 ```
 
+Se accedi alla demo solo via SSH tunnel, senza dominio e senza HTTPS, usa invece:
+
+```dotenv
+DJANGO_DEBUG=0
+DJANGO_SECRET_KEY=<secret-generata-sul-server>
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+MAPBOX_ACCESS_TOKEN=<token-mapbox>
+OPENAQ_API_KEY=<opzionale>
+DJANGO_SECURE_SSL_REDIRECT=false
+DJANGO_SESSION_COOKIE_SECURE=false
+DJANGO_CSRF_COOKIE_SECURE=false
+DJANGO_SECURE_HSTS_SECONDS=0
+```
+
+In questo caso apri il tunnel con `ssh -L 8080:127.0.0.1:80 user@server` e poi
+usi `http://127.0.0.1:8080/map/` dal browser locale. Se cambi porta locale del
+tunnel, aggiorna anche `DJANGO_CSRF_TRUSTED_ORIGINS`.
+
 Con HTTPS attivo lascia:
 
 ```dotenv

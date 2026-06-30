@@ -52,17 +52,18 @@ Create the file:
 cp .env.example .env
 ```
 
-Set these values:
+For the current demo setup, where access is through SSH tunnelling and there is
+no public domain and no HTTPS, set these values:
 
 ```dotenv
 DJANGO_SECRET_KEY=<long-secret-generated-on-server>
-DJANGO_ALLOWED_HOSTS=<domain-or-ip>,localhost,127.0.0.1
-DJANGO_CSRF_TRUSTED_ORIGINS=http://<domain-or-ip>
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 MAPBOX_ACCESS_TOKEN=<mapbox-token>
 OPENAQ_API_KEY=<optional>
 ```
 
-For temporary HTTP-only demo access, use:
+Also use HTTP-only security flags:
 
 ```dotenv
 DJANGO_SECURE_SSL_REDIRECT=false
@@ -143,7 +144,7 @@ Expected result:
 
 The app is exposed by Nginx on server port `80`.
 
-For SSH tunnelling:
+For SSH tunnelling from your machine:
 
 ```bash
 ssh -L 8080:127.0.0.1:80 user@server
@@ -154,6 +155,9 @@ Then open:
 ```text
 http://127.0.0.1:8080/map/
 ```
+
+If you use a different local tunnel port, replace `8080` in
+`DJANGO_CSRF_TRUSTED_ORIGINS` with that port.
 
 The GraphHopper ports `8989`, `8991`, and `8993` are host-side checks only. The
 frontend does not call them directly.
