@@ -58,18 +58,38 @@ sudo mkdir -p /opt/pathplanner
 sudo chown "$USER":"$USER" /opt/pathplanner
 git clone <repo-url> /opt/pathplanner/app
 cd /opt/pathplanner/app
-git checkout feature/a-star-preferences
+git checkout real-data-routing
 cp .env.example .env
 ```
 
-Compila `.env`, poi valida e avvia:
+Prima del primo avvio copia gli zip runtime sul server ed estraili nella root
+del progetto. Gli zip preparati sono gia strutturati con le cartelle giuste:
 
 ```bash
-docker compose config
-docker compose build
-docker compose up -d
-docker compose ps
-docker compose logs -f app
+unzip pathplanner-pbf.zip -d /opt/pathplanner/app
+unzip pathplanner-local-osm-pois.zip -d /opt/pathplanner/app
+unzip pathplanner-graphhopper.zip -d /opt/pathplanner/app
+```
+
+Per la demo Italia, questi valori possono restare uguali ai default di
+`.env.example`:
+
+```dotenv
+GRAPHHOPPER_URL=http://graphhopper:8989
+GRAPHHOPPER_PBF_PATH=/work/pbf/italy-260626.osm.pbf
+GRAPHHOPPER_GRAPH_LOCATION=/work/runtime/graphhopper/graphs/italy-gh9
+LOCAL_OSM_POI_DB=/app/runtime/local_osm_pois/italy.sqlite3
+LOCAL_OSM_PBF_PATH=/app/pbf/italy-260626.osm.pbf
+PATHPLANNER_ENSURE_LOCAL_OSM_DB=false
+```
+
+Compila `.env`, poi valida e avvia app, Nginx e GraphHopper insieme:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml config
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml ps
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml logs -f app graphhopper
 ```
 
 L'entrypoint esegue automaticamente:
@@ -82,15 +102,15 @@ python manage.py collectstatic --noinput
 Comandi manuali equivalenti:
 
 ```bash
-docker compose exec app python manage.py migrate --noinput
-docker compose exec app python manage.py collectstatic --noinput
-docker compose exec app python manage.py check --deploy
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml exec app python manage.py migrate --noinput
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml exec app python manage.py collectstatic --noinput
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml exec app python manage.py check --deploy
 ```
 
 Per validare il file Compose prima di creare `.env` reale:
 
 ```bash
-PATHPLANNER_ENV_FILE=.env.example docker compose config
+PATHPLANNER_ENV_FILE=.env.example docker compose -f docker-compose.yml -f docker-compose.osm-data.yml config
 ```
 
 ### Build/run Docker senza Compose
@@ -154,7 +174,7 @@ sudo mkdir -p /opt/pathplanner/app /opt/pathplanner/data /etc/pathplanner
 sudo chown -R pathplanner:www-data /opt/pathplanner
 sudo -u pathplanner git clone <repo-url> /opt/pathplanner/app
 cd /opt/pathplanner/app
-sudo -u pathplanner git checkout feature/a-star-preferences
+sudo -u pathplanner git checkout real-data-routing
 sudo -u pathplanner python3.12 -m venv /opt/pathplanner/venv
 sudo -u pathplanner /opt/pathplanner/venv/bin/pip install --upgrade pip
 sudo -u pathplanner /opt/pathplanner/venv/bin/pip install -r requirements.txt
@@ -207,12 +227,11 @@ Docker:
 ```bash
 cd /opt/pathplanner/app
 git fetch origin
-git checkout feature/a-star-preferences
+git checkout real-data-routing
 git pull --ff-only
-docker compose build
-docker compose up -d
-docker compose exec app python manage.py migrate --noinput
-docker compose exec app python manage.py collectstatic --noinput
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml exec app python manage.py migrate --noinput
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml exec app python manage.py collectstatic --noinput
 ```
 
 Non-Docker:
@@ -220,7 +239,7 @@ Non-Docker:
 ```bash
 cd /opt/pathplanner/app
 sudo -u pathplanner git fetch origin
-sudo -u pathplanner git checkout feature/a-star-preferences
+sudo -u pathplanner git checkout real-data-routing
 sudo -u pathplanner git pull --ff-only
 sudo -u pathplanner /opt/pathplanner/venv/bin/pip install -r requirements.txt
 sudo systemctl stop pathplanner-gunicorn
@@ -237,8 +256,7 @@ Docker:
 cd /opt/pathplanner/app
 git log --oneline -5
 git checkout <commit-buono>
-docker compose build
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml up -d --build
 ```
 
 Non-Docker:
@@ -263,11 +281,11 @@ Compose usa volumi persistenti:
 Backup semplice dei volumi a container fermo:
 
 ```bash
-docker compose stop app
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml stop app
 mkdir -p backups
 docker run --rm -v pathplanner-db:/data -v "$PWD/backups:/backup" alpine \
   tar czf /backup/pathplanner-db-$(date +%Y%m%d-%H%M%S).tgz -C /data .
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml up -d
 ```
 
 Per non-Docker, salva almeno `/opt/pathplanner/data/db.sqlite3` e `/opt/pathplanner/app/uploads`.
@@ -277,8 +295,9 @@ Per non-Docker, salva almeno `/opt/pathplanner/data/db.sqlite3` e `/opt/pathplan
 ```bash
 curl -I http://pathplanner.example.com/map/
 curl -I http://pathplanner.example.com/static/
-docker compose exec app python manage.py check --deploy
-docker compose logs --tail=100 app
+curl http://127.0.0.1:8989/info
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml exec app python manage.py check --deploy
+docker compose -f docker-compose.yml -f docker-compose.osm-data.yml logs --tail=100 app graphhopper
 ```
 
 Nel browser verifica:

@@ -208,15 +208,22 @@ GraphHopper is the preferred road-route provider now.
 Configured by:
 
 ```env
-GRAPHHOPPER_URL=http://host.docker.internal:8989
+GRAPHHOPPER_URL=http://graphhopper:8989
 GRAPHHOPPER_TIMEOUT_SECONDS=8
 GRAPHHOPPER_FORCE=false
 GRAPHHOPPER_PROFILE_WALKING=foot
 GRAPHHOPPER_PROFILE_CYCLING=bike
 GRAPHHOPPER_PROFILE_CAR=car
+GRAPHHOPPER_PBF_PATH=/work/pbf/italy-260626.osm.pbf
+GRAPHHOPPER_GRAPH_LOCATION=/work/runtime/graphhopper/graphs/italy-gh9
 ```
 
-Started locally with:
+In the Docker Compose flow, GraphHopper is started by
+`docker-compose.osm-data.yml` on the same Compose network as Django. It is also
+published on `127.0.0.1:8989` for local checks.
+
+For manual debugging outside Compose, the helper script can still start one
+region:
 
 ```bash
 scripts/start_graphhopper.sh italy
@@ -757,8 +764,8 @@ Current Docker files:
 | `Dockerfile` | Builds Python 3.12 app image |
 | `docker/entrypoint.sh` | Checks env, optionally builds local OSM DB, migrates, collectstatic |
 | `docker-compose.yml` | Production-ish app + Nginx |
-| `docker-compose.local.yml` | Local dev port 8765 and host GraphHopper URL |
-| `docker-compose.osm-data.yml` | Mounts PBF and local OSM DB folder |
+| `docker-compose.local.yml` | Local dev port 8765 |
+| `docker-compose.osm-data.yml` | Starts GraphHopper and mounts PBF, graph cache, and local OSM DB folders |
 | `.env.example` | Documents required runtime env vars |
 | `.dockerignore` | Keeps large runtime files out of Docker build context |
 
@@ -784,16 +791,14 @@ docker compose -f docker-compose.yml -f docker-compose.osm-data.yml up -d --buil
 Local app convention:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build app
+docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.osm-data.yml up -d --build
 ```
 
-GraphHopper is a separate runtime service. The Django app does not start it
-automatically.
-
-On Linux, if GraphHopper runs on the host and the app runs in Docker, check
-connectivity carefully. `host.docker.internal` is automatic on macOS Docker
-Desktop, but on Linux it may require Docker `host-gateway` configuration or a
-dedicated GraphHopper Docker service on the same network.
+GraphHopper is now part of the Compose runtime when
+`docker-compose.osm-data.yml` is included. The app depends on the GraphHopper
+service and defaults to `GRAPHHOPPER_URL=http://graphhopper:8989` inside the
+Docker network. The host can still inspect GraphHopper at
+`http://127.0.0.1:8989/info`.
 
 ## 15. Deployment / Migration From Old Server Version
 
@@ -808,18 +813,20 @@ Required after pulling code:
 4. Set `OPENAQ_API_KEY` if available.
 5. Copy runtime zips or equivalent folders.
 6. Extract them into the repo root.
-7. Start GraphHopper for the desired region.
-8. Point `GRAPHHOPPER_URL` to GraphHopper.
-9. Set `LOCAL_OSM_POI_DB` to the matching SQLite DB.
-10. Rebuild/restart Docker.
-11. Run backend smoke tests.
+7. Set `LOCAL_OSM_POI_DB` to the matching SQLite DB.
+8. Set `GRAPHHOPPER_PBF_PATH` and `GRAPHHOPPER_GRAPH_LOCATION` if using a
+   region other than the Italy defaults.
+9. Rebuild/restart Docker Compose with `docker-compose.osm-data.yml`.
+10. Run backend smoke tests.
 
 For Italy:
 
 ```env
 LOCAL_OSM_POI_DB=/app/runtime/local_osm_pois/italy.sqlite3
 LOCAL_OSM_PBF_PATH=/app/pbf/italy-260626.osm.pbf
-GRAPHHOPPER_URL=http://host.docker.internal:8989
+GRAPHHOPPER_URL=http://graphhopper:8989
+GRAPHHOPPER_PBF_PATH=/work/pbf/italy-260626.osm.pbf
+GRAPHHOPPER_GRAPH_LOCATION=/work/runtime/graphhopper/graphs/italy-gh9
 PATHPLANNER_ENSURE_LOCAL_OSM_DB=false
 ```
 
@@ -828,6 +835,8 @@ For London:
 ```env
 LOCAL_OSM_POI_DB=/app/runtime/local_osm_pois/london.sqlite3
 LOCAL_OSM_PBF_PATH=/app/pbf/greater-london-260626.osm.pbf
+GRAPHHOPPER_PBF_PATH=/work/pbf/greater-london-260626.osm.pbf
+GRAPHHOPPER_GRAPH_LOCATION=/work/runtime/graphhopper/graphs/london-gh9
 ```
 
 For New York:
@@ -835,12 +844,15 @@ For New York:
 ```env
 LOCAL_OSM_POI_DB=/app/runtime/local_osm_pois/new-york.sqlite3
 LOCAL_OSM_PBF_PATH=/app/pbf/new-york-260626.osm.pbf
+GRAPHHOPPER_PBF_PATH=/work/pbf/new-york-260626.osm.pbf
+GRAPHHOPPER_GRAPH_LOCATION=/work/runtime/graphhopper/graphs/new-york-gh9
 ```
 
-Only one active GraphHopper region is served by the simple
-`scripts/start_graphhopper.sh` flow at a time. If the server must serve Italy,
-London, and New York automatically in one deployment, that is a future
-multi-region routing-service problem.
+The current Compose file runs one active GraphHopper region at a time. The
+default is Italy. To switch the whole deployment to London or New York, set the
+matching GraphHopper and local-DB env vars and recreate the containers. If the
+server must serve Italy, London, and New York automatically in one deployment,
+that is a future multi-region routing-service problem.
 
 ## 16. Backend API Map
 

@@ -69,14 +69,8 @@ runtime data explicitly.
 ### Road Route Candidates
 
 The backend first asks a local GraphHopper service for route candidates.
-
-GraphHopper is started separately and points at a local imported OSM extract:
-
-```bash
-scripts/start_graphhopper.sh italy
-```
-
-or equivalent Docker command using:
+GraphHopper is now started by `docker-compose.osm-data.yml` together with the
+Django app, and points at a local imported OSM extract:
 
 ```text
 pbf/italy-260626.osm.pbf
@@ -87,10 +81,13 @@ runtime/graphhopper/config/pathplanner-demo.yml
 The Django backend calls GraphHopper through:
 
 ```env
-GRAPHHOPPER_URL=http://host.docker.internal:8989
+GRAPHHOPPER_URL=http://graphhopper:8989
 GRAPHHOPPER_TIMEOUT_SECONDS=8
 GRAPHHOPPER_FORCE=false
 ```
+
+For manual debugging outside Compose, `scripts/start_graphhopper.sh italy` is
+still available.
 
 If GraphHopper returns usable candidates, the backend scores them with the
 clinical/environmental weights. If GraphHopper is unavailable and
@@ -548,14 +545,14 @@ File:
 docker-compose.local.yml
 ```
 
-The local app service now defaults to:
+The local app service with the OSM-data override now defaults to:
 
 ```env
-GRAPHHOPPER_URL=http://host.docker.internal:8989
+GRAPHHOPPER_URL=http://graphhopper:8989
 LOCAL_OSM_POI_DB=/app/runtime/local_osm_pois/italy.sqlite3
 ```
 
-And mounts local POI DBs read-only:
+And mounts local POI DBs:
 
 ```yaml
 volumes:
@@ -573,17 +570,22 @@ File:
 docker-compose.osm-data.yml
 ```
 
-This override is intended for local/server deployments that should have
-GraphHopper/SQLite data mounted from the host. It mounts:
+This override is intended for local/server deployments that should run app,
+Nginx, GraphHopper, and SQLite data from one Compose command. It mounts:
 
 ```text
 ./runtime/local_osm_pois -> /app/runtime/local_osm_pois
 ./pbf                    -> /app/pbf:ro
+./pbf                    -> /work/pbf:ro
+./runtime/graphhopper    -> /work/runtime/graphhopper
 ```
 
 It also wires these environment variables:
 
 ```env
+GRAPHHOPPER_URL=http://graphhopper:8989
+GRAPHHOPPER_PBF_PATH=/work/pbf/italy-260626.osm.pbf
+GRAPHHOPPER_GRAPH_LOCATION=/work/runtime/graphhopper/graphs/italy-gh9
 LOCAL_OSM_POI_DB=/app/runtime/local_osm_pois/italy.sqlite3
 LOCAL_OSM_PBF_PATH=/app/pbf/italy-260626.osm.pbf
 LOCAL_OSM_POI_BUILD_MODE=full
@@ -807,8 +809,7 @@ POI SQLite DB:  runtime/local_osm_pois/italy.sqlite3
 Local convention after frontend/backend edits:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml build app
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d app
+docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.osm-data.yml up -d --build
 ```
 
 The local app should stay on:
@@ -929,7 +930,7 @@ Preferred path:
 | Data | File/function | Provider |
 | --- | --- | --- |
 | Route candidates | `evaluations/backend_astar.py::_graphhopper_route_payload()` | local GraphHopper `/route` |
-| GraphHopper URL | `GRAPHHOPPER_URL` | usually `http://host.docker.internal:8989` from Docker |
+| GraphHopper URL | `GRAPHHOPPER_URL` | `http://graphhopper:8989` inside Compose |
 | OSM graph data | GraphHopper graph under `runtime/graphhopper/graphs/...` | generated from local PBF |
 
 The actual HTTP call is:

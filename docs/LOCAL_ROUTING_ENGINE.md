@@ -16,13 +16,15 @@ Why this exists:
 Configuration:
 
 ```env
-GRAPHHOPPER_URL=http://host.docker.internal:8989
+GRAPHHOPPER_URL=http://graphhopper:8989
 GRAPHHOPPER_TIMEOUT_SECONDS=8
 GRAPHHOPPER_FORCE=false
 GRAPHHOPPER_PROFILE_WALKING=foot
 GRAPHHOPPER_PROFILE_CYCLING=bike
 GRAPHHOPPER_PROFILE_CAR=car
 LOCAL_OSM_POI_DB=/app/runtime/local_osm_pois/italy.sqlite3
+GRAPHHOPPER_PBF_PATH=/work/pbf/italy-260626.osm.pbf
+GRAPHHOPPER_GRAPH_LOCATION=/work/runtime/graphhopper/graphs/italy-gh9
 ```
 
 Behavior:
@@ -52,6 +54,17 @@ Local files currently tested under `pbf/`:
 Start a tested region:
 
 ```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml -f docker-compose.osm-data.yml up -d --build
+curl http://127.0.0.1:8989/info
+```
+
+The Compose flow starts both Django and GraphHopper. Django reaches
+GraphHopper through the internal Docker network at `http://graphhopper:8989`,
+while the host can inspect it at `http://127.0.0.1:8989`.
+
+For debugging outside Compose, start one tested region manually:
+
+```bash
 scripts/start_graphhopper.sh italy
 ```
 
@@ -72,10 +85,11 @@ docker run -d --name pathplanner-graphhopper-italy \
     server /work/runtime/graphhopper/config/pathplanner-demo.yml
 ```
 
-Then run the Django app with:
+If the Django app itself runs outside Compose and GraphHopper runs in Docker,
+point it at the host-published port:
 
 ```env
-GRAPHHOPPER_URL=http://host.docker.internal:8989
+GRAPHHOPPER_URL=http://127.0.0.1:8989
 ```
 
 Observed backend end-to-end timings are still around 4 seconds for clinical
